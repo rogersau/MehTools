@@ -12,8 +12,11 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets\JamesTools.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <ApplicationIcon>Assets\MehTools.ico</ApplicationIcon>
+    <Version>0.2.0</Version>
+    <AssemblyName>MehTools</AssemblyName>
+    <Product>Meh Tools</Product>
+    <Title>Meh Tools</Title>
   </PropertyGroup>
 
 </Project>

@@ -51,19 +51,19 @@ public partial class MainWindow : Window
         _tray = new Forms.NotifyIcon
         {
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application,
-            Text = "JamesTools",
+            Text = "Meh Tools",
             Visible = true,
             ContextMenuStrip = new Forms.ContextMenuStrip()
         };
-        _tray.ContextMenuStrip.Items.Add("Open JamesTools", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
-        _tray.ContextMenuStrip.Items.Add("Quit (stop managed recording)", null, (_, _) => Dispatcher.Invoke(() => _ = ExitAsync()));
+        _tray.ContextMenuStrip.Items.Add("Open Meh Tools", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
+        _tray.ContextMenuStrip.Items.Add("Quit (stop recording)", null, (_, _) => Dispatcher.Invoke(() => _ = ExitAsync()));
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
 
         _automation = new AutomationService(_settings, _dataDirectory);
         _automation.StatusChanged += status => Dispatcher.BeginInvoke(() => ShowStatus(status));
         _automation.Activity += message => Dispatcher.BeginInvoke(() => AddActivity(message));
         _automation.Start();
-        AddActivity(initialMessage ?? "Ready. Configure your games and save changes.");
+        AddActivity(initialMessage ?? "Ready. Add your games and save.");
         if (initialMessage is not null) StatusNotice.Text = initialMessage;
     }
 
@@ -82,7 +82,7 @@ public partial class MainWindow : Window
         StatusRecording.Text = status.Recording;
         StatusVibrance.Text = status.Vibrance;
         StatusPower.Text = status.Power;
-        SidebarStatus.Text = _settings.AutomationEnabled ? "Monitoring is on" : "Automation is paused";
+        SidebarStatus.Text = _settings.AutomationEnabled ? "Watching for games" : "Paused";
         if (!string.IsNullOrWhiteSpace(status.Notice)) StatusNotice.Text = status.Notice;
     }
 
@@ -99,12 +99,12 @@ public partial class MainWindow : Window
         Pages.SelectedIndex = Navigation.SelectedIndex;
         var pages = new (string Title, string Subtitle)[]
         {
-            ("Overview", "Your gaming setup, in one place."),
-            ("Games", "Choose which games trigger each action."),
-            ("Recording", "Configure OBS and where your videos go."),
-            ("Vibrance", "Give selected games their own colour."),
-            ("Power", "Choose the right Windows plan for the moment."),
-            ("Settings", "Make the app work the way you do.")
+            ("Overview", "Your game settings, all in one place."),
+            ("Games", "Choose what happens when you play."),
+            ("Recording", "Choose OBS and where to save videos."),
+            ("Vibrance", "Set your game colours."),
+            ("Power", "Choose your power plans."),
+            ("Settings", "Make the app yours.")
         };
         var selected = pages[Navigation.SelectedIndex];
         PageTitle.Text = selected.Title;
@@ -140,7 +140,7 @@ public partial class MainWindow : Window
             }
             _automation.UpdateSettings(_settings);
             UpdateAutomationButton();
-            StatusNotice.Text = "Settings saved on this PC.";
+            StatusNotice.Text = "Saved.";
             AddActivity("Settings saved.");
             return true;
         }
@@ -162,14 +162,14 @@ public partial class MainWindow : Window
 
     private void UpdateAutomationButton()
     {
-        AutomationButton.Content = _settings.AutomationEnabled ? "Pause automation" : "Enable automation";
-        OverviewHeadline.Text = _settings.AutomationEnabled ? "Your setup is watching" : "Your setup is paused";
-        SidebarStatus.Text = _settings.AutomationEnabled ? "Monitoring is on" : "Automation is paused";
+        AutomationButton.Content = _settings.AutomationEnabled ? "Pause" : "Start watching";
+        OverviewHeadline.Text = _settings.AutomationEnabled ? "Watching for games" : "Paused";
+        SidebarStatus.Text = _settings.AutomationEnabled ? "Watching for games" : "Paused";
     }
 
     private void AddGame_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new Microsoft.Win32.OpenFileDialog { Filter = "Applications (*.exe)|*.exe", Title = "Choose the game executable" };
+        var picker = new Microsoft.Win32.OpenFileDialog { Filter = "Applications (*.exe)|*.exe", Title = "Choose the game file" };
         if (picker.ShowDialog(this) != true) return;
         AddGame(Path.GetFileNameWithoutExtension(picker.FileName), picker.FileName);
     }
@@ -192,7 +192,7 @@ public partial class MainWindow : Window
             });
             if (choices.Length == 0)
             {
-                MessageBox.Show(this, "No running Steam game was found. Start the game first, or browse to its executable.",
+                MessageBox.Show(this, "No running Steam game found. Start it first, or find its game file.",
                     "No running game", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -204,7 +204,7 @@ public partial class MainWindow : Window
                 Foreground = (System.Windows.Media.Brush)FindResource("TextBrush")
             };
             var layout = new DockPanel { Margin = new Thickness(20) };
-            var hint = new TextBlock { Text = "Select the actual game process. A game can have more than one executable.",
+            var hint = new TextBlock { Text = "Choose your game from the list.",
                 Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
             DockPanel.SetDock(hint, Dock.Top);
             layout.Children.Add(hint);
@@ -231,7 +231,7 @@ public partial class MainWindow : Window
     {
         if (_settings.Games.Any(g => string.Equals(g.ExecutablePath, path, StringComparison.OrdinalIgnoreCase)))
         {
-            MessageBox.Show(this, "That executable is already in the list.", "Game already added", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "That game file is already in the list.", "Game already added", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         _settings.Games.Add(new GameRule { Name = name, ExecutablePath = path });
@@ -268,7 +268,7 @@ public partial class MainWindow : Window
 
     private void BrowseObsConfig_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new Microsoft.Win32.OpenFolderDialog { Title = "Choose the OBS configuration folder" };
+        var picker = new Microsoft.Win32.OpenFolderDialog { Title = "Choose the OBS settings folder" };
         if (picker.ShowDialog(this) == true) { _settings.ObsConfigRoot = picker.FolderName; DataContext = null; DataContext = _settings; }
     }
 
@@ -295,7 +295,7 @@ public partial class MainWindow : Window
             var running = Process.GetProcessesByName("obs64");
             try { if (running.Length > 0) throw new InvalidOperationException("OBS is already running. Close it when finished so automatic recording can start it later."); }
             finally { foreach (var process in running) process.Dispose(); }
-            if (!File.Exists(_settings.ObsExecutablePath)) throw new FileNotFoundException("Choose the OBS executable first.");
+            if (!File.Exists(_settings.ObsExecutablePath)) throw new FileNotFoundException("Choose the OBS app first.");
             var start = new ProcessStartInfo(_settings.ObsExecutablePath)
             {
                 UseShellExecute = false,
@@ -322,7 +322,7 @@ public partial class MainWindow : Window
         _exiting = true;
         Hide();
         try { await _automation.DisposeAsync(); }
-        catch (Exception ex) { MessageBox.Show(ex.Message, "JamesTools shutdown", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "Meh Tools", MessageBoxButton.OK, MessageBoxImage.Warning); }
         _tray.Visible = false;
         _tray.Dispose();
         System.Windows.Application.Current.Shutdown();
