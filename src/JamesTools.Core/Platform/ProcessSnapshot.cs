@@ -41,7 +41,7 @@ public static class ProcessSnapshot
         return result;
     }
 
-    private static string? GetImagePath(int processId)
+    internal static string? GetImagePath(int processId)
     {
         using var handle = OpenProcess(ProcessQueryLimitedInformation, false, processId);
         if (handle.IsInvalid)

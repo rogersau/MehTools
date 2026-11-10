@@ -8,6 +8,7 @@ A small Windows desktop companion for game recording, NVIDIA digital vibrance, a
 - Selects the game's window in your existing OBS Game Capture source and can update the recording folder, while keeping the rest of the scene, encoder, and audio tracks intact.
 - Switches NVIDIA digital vibrance between a desktop value and a game value for games you select.
 - Switches between existing Windows power plans for your selected games or all detected Steam games.
+- Logs performance locally and saves a report you can share with an AI for troubleshooting.
 - Runs in the notification area and can start with Windows. No telemetry or account is required.
 
 ## Requirements
@@ -30,6 +31,12 @@ The Game Capture source must be visible in OBS's active scene. When changing to 
 OBS audio tracks are configured in OBS, not in Meh Tools. An existing multitrack setup remains intact, including separate game, Discord and microphone tracks. To edit individual tracks, mute the combined track in your editor first. Test a short recording after changing games or audio devices.
 
 If OBS was already open, Meh Tools leaves it alone and will not automatically start or stop a recording in that session. Its status reports that OBS was launched with recording requested; it does not independently verify that OBS captured picture or sound. Check a short recording before relying on a new setup.
+
+## Performance reports
+
+Open **Performance**, choose a game if it is in your list, add any useful notes and select **Start log**. Play until the issue happens, then choose **Stop and save**. Open the resulting text file and paste it into an AI chat, or attach it if the chat supports files. Review it before sharing; it contains PC hardware details, performance readings, timestamps and any notes you add. Logging stays on your PC until you choose to share the report.
+
+The report is evidence for troubleshooting, not a definitive diagnosis. FPS, frame times and individual CPU core load are not measured; overall CPU use can hide a single busy core. NVIDIA GPU metrics require a working `nvidia-smi`; unavailable measurements are marked as such. Use a frame-time tool and repeat the test if the AI needs more evidence.
 
 ## Build and test
 

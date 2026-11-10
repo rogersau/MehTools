@@ -104,6 +104,7 @@ public partial class MainWindow : Window
             ("Recording", "Choose OBS and where to save videos."),
             ("Vibrance", "Set your game colours."),
             ("Power", "Choose your power plans."),
+            ("Performance", "Make a report about how your PC handles games."),
             ("Settings", "Make the app yours.")
         };
         var selected = pages[Navigation.SelectedIndex];
@@ -319,6 +320,7 @@ public partial class MainWindow : Window
     private async Task ExitAsync()
     {
         if (_exiting) return;
+        if (!await PreparePerformanceForExitAsync()) return;
         _exiting = true;
         Hide();
         try { await _automation.DisposeAsync(); }

@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using JamesTools.Core.Automation;
 using JamesTools.Core.Configuration;
+using JamesTools.Core.Diagnostics;
 using JamesTools.Core.Platform;
 using JamesTools.Core.Recording;
 
@@ -18,7 +19,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("automation does not own an existing OBS", Tests.ExistingObsIsNotStopped),
     ("automation stops retrying after OBS closes", Tests.ClosedObsDoesNotLoop),
     ("automation retries startup failures with a limit", Tests.StartFailureBackoff),
-    ("manual changes are respected when disabling automation", Tests.ManualChangesAreRespected)
+    ("manual changes are respected when disabling automation", Tests.ManualChangesAreRespected),
+    ("performance report captures samples without exposing paths", Tests.PerformanceReport)
 };
 var failed = 0;
 foreach (var test in tests)
@@ -47,6 +49,20 @@ internal static class Tests
     private const string GamePath = @"C:\Games\Example\game.exe";
     private static readonly Guid DesktopPlan = Guid.Parse("381b4222-f694-41f0-9685-ff5bb260df2e");
     private static readonly Guid GamingPlan = Guid.Parse("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
+
+    public static async Task PerformanceReport()
+    {
+        var executable = Environment.ProcessPath ?? throw new Exception("Current executable unavailable");
+        await using var logger = await PerformanceLogger.StartAsync(executable);
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        var report = await logger.StopAsync();
+        Assert(report == await logger.StopAsync(), "stopping twice changed the report");
+        Assert(report.Contains("Total CPU:") && !report.Contains("Total CPU: unavailable"), "CPU samples missing");
+        Assert(report.Contains("Physical memory used:") && !report.Contains("Physical memory used: unavailable"), "memory samples missing");
+        Assert(report.Contains("Selected processes working set:") && !report.Contains("Selected processes working set: unavailable"), "selected process samples missing");
+        Assert(!report.Contains(executable, StringComparison.OrdinalIgnoreCase), "full executable path leaked into report");
+        Assert(report.Contains("FPS, frame times") && report.Contains("not measured"), "measurement limitations missing");
+    }
 
     public static Task SettingsRoundTrip()
     {

@@ -35,7 +35,7 @@
                         </Style>
                     </ListBox.ItemContainerStyle>
                     <ListBoxItem Content="◈   Overview"/><ListBoxItem Content="▣   Games"/><ListBoxItem Content="●   Recording"/>
-                    <ListBoxItem Content="◐   Vibrance"/><ListBoxItem Content="ϟ   Power"/><ListBoxItem Content="⚙   Settings"/>
+                    <ListBoxItem Content="◐   Vibrance"/><ListBoxItem Content="ϟ   Power"/><ListBoxItem Content="▤   Performance"/><ListBoxItem Content="⚙   Settings"/>
                 </ListBox>
                 <Border Grid.Row="2" Background="#1D2D30" CornerRadius="8" Padding="13">
                     <StackPanel>
@@ -190,6 +190,32 @@
                                 <TextBlock Text="Gaming plan" Margin="0,15,0,6" FontWeight="SemiBold"/>
                                 <ComboBox x:Name="GamingPlanBox" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding GamingPowerPlan}"/>
                                 <TextBlock Text="When Steam games is off, a game in your watch list activates the gaming plan." Style="{StaticResource Hint}" Margin="0,15,0,0"/>
+                            </StackPanel></Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+                <TabItem Header="Performance">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="0,0,8,0">
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Find what slows your game down" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="Start a log, play until you notice the problem, then stop and save it. Paste the report into ChatGPT, Claude or Gemini for help." Style="{StaticResource Hint}" Margin="0,6,0,15"/>
+                                <TextBlock Text="Game (optional)" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                <ComboBox x:Name="PerformanceGame" ItemsSource="{Binding Games}" DisplayMemberPath="Name" SelectedIndex="0"/>
+                                <TextBlock Text="What happened? (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
+                                <TextBox x:Name="PerformanceNotes" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto"/>
+                                <TextBlock Text="For example: FPS drops during fights, or the game stutters after 10 minutes." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                    <Button x:Name="StartPerformanceButton" Content="Start log" Style="{StaticResource AccentButton}" Click="StartPerformance_Click"/>
+                                    <Button x:Name="StopPerformanceButton" Content="Stop and save" IsEnabled="False" Click="StopPerformance_Click"/>
+                                    <Button x:Name="SavePerformanceButton" Content="Save report again" IsEnabled="False" Click="SavePerformance_Click"/>
+                                </StackPanel>
+                                <TextBlock x:Name="PerformanceStatus" Text="Ready to log." FontWeight="SemiBold" Margin="0,14,0,0" TextWrapping="Wrap"/>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="What goes in the report" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Your PC specs, performance samples and anything you type above. It stays on your PC until you share it. Review the file before sharing." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
+                                <TextBlock Text="FPS and frame times aren't measured, so the report can't prove what caused a stutter. An AI can help interpret the evidence and suggest what to test next." Style="{StaticResource Hint}" Margin="0,10,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
