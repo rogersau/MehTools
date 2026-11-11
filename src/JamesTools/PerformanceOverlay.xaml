@@ -1,0 +1,22 @@
+<Window x:Class="JamesTools.PerformanceOverlay"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Performance monitor" Width="260" SizeToContent="Height" WindowStyle="None"
+        ResizeMode="NoResize" ShowInTaskbar="False" ShowActivated="False" Topmost="True"
+        WindowStartupLocation="Manual" Background="#E810161D" Foreground="#EDF4F4">
+    <Border BorderBrush="#52656C" BorderThickness="1" Padding="12">
+        <StackPanel>
+            <DockPanel MouseLeftButtonDown="Drag_MouseLeftButtonDown" LastChildFill="True">
+                <Button Content="×" DockPanel.Dock="Right" Click="Close_Click" Padding="4,0" Margin="0" ToolTip="Close monitor"/>
+                <TextBlock Text="LIVE STATS  ·  drag to move" Foreground="#8AE1C3" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </DockPanel>
+            <UniformGrid Columns="2" Margin="0,12,0,0">
+                <TextBlock Text="FPS" Foreground="#A4B3B9"/><TextBlock x:Name="FpsValue" Text="—" TextAlignment="Right" FontWeight="SemiBold"/>
+                <TextBlock Text="GPU" Foreground="#A4B3B9" Margin="0,5,0,0"/><TextBlock x:Name="GpuValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                <TextBlock Text="CPU" Foreground="#A4B3B9" Margin="0,5,0,0"/><TextBlock x:Name="CpuValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold"/>
+                <TextBlock Text="Frame delay" Foreground="#A4B3B9" Margin="0,5,0,0"/><TextBlock x:Name="LatencyValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold"/>
+            </UniformGrid>
+            <TextBlock x:Name="FrameStatus" Text="" Foreground="#A4B3B9" FontSize="10" TextWrapping="Wrap" Margin="0,10,0,0"/>
+        </StackPanel>
+    </Border>
+</Window>
