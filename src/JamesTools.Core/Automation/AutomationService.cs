@@ -80,7 +80,7 @@ public sealed class AutomationService : IAsyncDisposable
             if (_recorder.IsOwnedRecording)
             {
                 var stopped = await _recorder.StopOwnedAsync();
-                Log(stopped ? "Recording stopped and saved." : "OBS did not close; it was left running.");
+                Log(stopped ? "Recording stopped." : "OBS didn't close. It's still open.");
             }
             RestoreManagedSettings(Volatile.Read(ref _settings));
         }
@@ -93,14 +93,14 @@ public sealed class AutomationService : IAsyncDisposable
             if (_recorder.IsOwnedRecording)
             {
                 var stopped = await _recorder.StopOwnedAsync();
-                Log(stopped ? "Recording stopped and saved." : "OBS did not close; it was left running.");
+                Log(stopped ? "Recording stopped." : "OBS didn't close. It's still open.");
             }
             _recordingEndSince = null;
             _recordingGamePid = 0;
             _recordingGamePath = null;
             _attemptPid = _blockedPid = _failedAttempts = 0;
             RestoreManagedSettings(settings);
-            Publish(new("None", "Paused", "Paused", "Paused", "Automation is paused."));
+            Publish(new("None", "Off", "Off", "Off", "Watching is off."));
             return;
         }
 
@@ -116,7 +116,7 @@ public sealed class AutomationService : IAsyncDisposable
             : [];
         var notice = new StringBuilder();
         var gameName = matched.Count > 0 ? string.Join(", ", matched.Select(m => m.Rule.Name).Distinct())
-            : steamRunning.Count > 0 ? string.Join(", ", steamRunning.Select(g => g.Name).Distinct()) : "None detected";
+            : steamRunning.Count > 0 ? string.Join(", ", steamRunning.Select(g => g.Name).Distinct()) : "None";
 
         var recording = await UpdateRecordingAsync(settings, matched, notice);
         var vibrance = UpdateVibrance(settings, matched, notice);
@@ -137,15 +137,15 @@ public sealed class AutomationService : IAsyncDisposable
             var ownerStillRunning = settings.RecordingEnabled && matched.Any(g => g.Rule.Record &&
                 g.Process.Id == _recordingGamePid &&
                 string.Equals(g.Rule.ExecutablePath, _recordingGamePath, StringComparison.OrdinalIgnoreCase));
-            if (ownerStillRunning) { _recordingEndSince = null; return "OBS running"; }
+            if (ownerStillRunning) { _recordingEndSince = null; return "Recording"; }
             _recordingEndSince ??= _utcNow();
             var delay = settings.RecordingEnabled ? Math.Clamp(settings.RecordingStopDelaySeconds, 0, 120) : 0;
-            if (_utcNow() - _recordingEndSince < TimeSpan.FromSeconds(delay)) return "Finishing shortly";
+            if (_utcNow() - _recordingEndSince < TimeSpan.FromSeconds(delay)) return "Stopping soon";
             var stopped = await _recorder.StopOwnedAsync();
             _recordingEndSince = null;
             _recordingGamePath = null;
             _recordingGamePid = 0;
-            Log(stopped ? "Recording stopped and saved." : "OBS did not close; it was left running.");
+            Log(stopped ? "Recording stopped." : "OBS didn't close. It's still open.");
             return stopped ? "Ready" : "OBS still open";
         }
 
@@ -153,7 +153,7 @@ public sealed class AutomationService : IAsyncDisposable
         if (_recordingGamePid != 0 && matched.Any(g => g.Rule.Record && g.Process.Id == _recordingGamePid))
         {
             _blockedPid = _recordingGamePid;
-            Log("OBS closed while the game was running. Recording will not restart until settings change or the game restarts.");
+            Log("OBS closed while the game was running. Save settings or restart the game to try again.");
         }
         _recordingGamePath = null;
         _recordingGamePid = 0;
@@ -171,10 +171,10 @@ public sealed class AutomationService : IAsyncDisposable
         }
         if (_blockedPid == selected.Process.Id)
         {
-            Append(notice, "OBS stopped or could not start. Check OBS, then save settings or restart the game to retry.");
-            return "Recording stopped";
+            Append(notice, "Recording didn't start. Check OBS, then save settings or restart the game.");
+            return "Needs attention";
         }
-        if (_utcNow() < _retryAfter) return "Retrying shortly";
+        if (_utcNow() < _retryAfter) return "Trying again soon";
         var result = _recorder.TryStart(new ObsSettings(settings.ObsExecutablePath, settings.ObsConfigRoot,
             settings.RecordingDirectory, settings.ObsPortable), selected.Process.Id, selected.Rule.ExecutablePath);
         switch (result.Status)
@@ -182,10 +182,10 @@ public sealed class AutomationService : IAsyncDisposable
             case RecorderStartStatus.Started:
                 _recordingGamePath = selected.Rule.ExecutablePath;
                 _recordingGamePid = selected.Process.Id;
-                Log("OBS launched with recording requested for " + selected.Rule.Name + ".");
-                return "OBS running";
+                Log("Started recording for " + selected.Rule.Name + ".");
+                return "Recording";
             case RecorderStartStatus.WaitingForWindow:
-                return "Waiting for game window";
+                return "Waiting for game";
             case RecorderStartStatus.AlreadyRunning:
                 Append(notice, result.Message);
                 return "OBS already open";
@@ -207,7 +207,7 @@ public sealed class AutomationService : IAsyncDisposable
             return "Off";
         }
         var target = matched.Any(g => g.Rule.UseVibrance) ? settings.GameVibrance : settings.DesktopVibrance;
-        if (target is < 0 or > 100) { Append(notice, "Vibrance must be between 0 and 100."); return "Needs attention"; }
+        if (target is < 0 or > 100) { Append(notice, "Colour level must be between 0 and 100."); return "Needs attention"; }
         try
         {
             if (_lastVibrance != target)
@@ -215,7 +215,7 @@ public sealed class AutomationService : IAsyncDisposable
                 _platform.SetVibrance(target);
                 _lastVibrance = target;
                 _vibranceManaged = true;
-                Log($"Display vibrance set to {target}%.");
+                Log($"Colour level set to {target}%.");
             }
             return $"{target}%";
         }
@@ -223,8 +223,8 @@ public sealed class AutomationService : IAsyncDisposable
         {
             _lastVibrance = null;
             _platform.ResetVibrance();
-            Append(notice, "NVIDIA vibrance: " + ex.Message);
-            Log("NVIDIA vibrance: " + ex.Message);
+            Append(notice, "Colours: " + ex.Message);
+            Log("Colours: " + ex.Message);
             return "Unavailable";
         }
     }
@@ -272,7 +272,7 @@ public sealed class AutomationService : IAsyncDisposable
                 _platform.ReadVibrance().All(display => Math.Abs(display.Percent - previous) <= 1))
                 _platform.SetVibrance(Math.Clamp(settings.DesktopVibrance, 0, 100));
         }
-        catch (Exception ex) { Log("Could not restore vibrance: " + ex.Message); }
+        catch (Exception ex) { Log("Couldn't restore colours: " + ex.Message); }
         finally { _vibranceManaged = false; _lastVibrance = null; }
     }
 

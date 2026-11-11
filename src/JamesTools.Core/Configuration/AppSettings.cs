@@ -8,6 +8,7 @@ public sealed class AppSettings
     public bool AutomationEnabled { get; set; }
     public bool StartWithWindows { get; set; }
     public bool MinimizeToTray { get; set; } = true;
+    public bool TrayOnMinimize { get; set; }
     public int PollSeconds { get; set; } = 4;
     public ObservableCollection<GameRule> Games { get; set; } = [];
 
@@ -33,6 +34,7 @@ public sealed class AppSettings
         AutomationEnabled = AutomationEnabled,
         StartWithWindows = StartWithWindows,
         MinimizeToTray = MinimizeToTray,
+        TrayOnMinimize = TrayOnMinimize,
         PollSeconds = PollSeconds,
         Games = new ObservableCollection<GameRule>(Games.Select(game => game.Copy())),
         RecordingEnabled = RecordingEnabled,

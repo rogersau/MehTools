@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Meh Tools" Width="1180" Height="800" MinWidth="980" MinHeight="690"
         Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}" WindowStartupLocation="CenterScreen"
-        FontFamily="Segoe UI" FontSize="13" Closing="Window_Closing">
+        FontFamily="Segoe UI" FontSize="13" Closing="Window_Closing" StateChanged="Window_StateChanged">
     <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Border Grid.Column="0" Background="#141C24" BorderBrush="#2B3841" BorderThickness="0,0,1,0">
@@ -11,7 +11,7 @@
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <StackPanel>
                     <TextBlock Text="MEH  /  TOOLS" Foreground="{StaticResource AccentBrush}" FontSize="17" FontWeight="Bold"/>
-                    <TextBlock Text="GAME STUFF" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="SemiBold" Margin="0,7,0,22"/>
+                    <TextBlock Text="FOR GAMES" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="SemiBold" Margin="0,7,0,22"/>
                 </StackPanel>
                 <ListBox x:Name="Navigation" Grid.Row="1" BorderThickness="0" Background="Transparent" Foreground="{StaticResource TextBrush}"
                          SelectionChanged="Navigation_SelectionChanged" SelectedIndex="0">
@@ -35,12 +35,12 @@
                         </Style>
                     </ListBox.ItemContainerStyle>
                     <ListBoxItem Content="◈   Overview"/><ListBoxItem Content="▣   Games"/><ListBoxItem Content="●   Recording"/>
-                    <ListBoxItem Content="◐   Vibrance"/><ListBoxItem Content="ϟ   Power"/><ListBoxItem Content="▤   Performance"/><ListBoxItem Content="⚙   Settings"/>
+                    <ListBoxItem Content="◐   Colours"/><ListBoxItem Content="ϟ   Power"/><ListBoxItem Content="▤   Performance"/><ListBoxItem Content="⚙   Settings"/>
                 </ListBox>
                 <Border Grid.Row="2" Background="#1D2D30" CornerRadius="8" Padding="13">
                     <StackPanel>
                         <TextBlock Text="STATUS" Foreground="{StaticResource AccentBrush}" FontSize="10" FontWeight="Bold"/>
-                        <TextBlock x:Name="SidebarStatus" Text="Starting…" Margin="0,7,0,0" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="SidebarStatus" Text="Loading…" Margin="0,7,0,0" TextWrapping="Wrap"/>
                     </StackPanel>
                 </Border>
             </Grid>
@@ -52,7 +52,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock x:Name="PageTitle" Text="Overview" FontSize="27" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="PageSubtitle" Text="Your game settings, all in one place." Style="{StaticResource Hint}" Margin="0,4,0,0"/>
+                    <TextBlock x:Name="PageSubtitle" Text="See what's happening and turn watching on or off." Style="{StaticResource Hint}" Margin="0,4,0,0"/>
                 </StackPanel>
                 <Button Grid.Column="1" Content="Save" Style="{StaticResource AccentButton}" Click="Save_Click" VerticalAlignment="Center" Margin="0"/>
             </Grid>
@@ -65,9 +65,9 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <TextBlock Text="GAME WATCHER" FontSize="10" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
-                                        <TextBlock x:Name="OverviewHeadline" Text="Ready" FontSize="20" FontWeight="SemiBold" Margin="0,7,0,3"/>
-                                        <TextBlock Text="Watch for games and use your settings." Style="{StaticResource Hint}"/>
+                                        <TextBlock Text="WATCHING" FontSize="10" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+                                        <TextBlock x:Name="OverviewHeadline" Text="Off" FontSize="20" FontWeight="SemiBold" Margin="0,7,0,3"/>
+                                        <TextBlock Text="Turn this on to apply your settings when a game starts." Style="{StaticResource Hint}"/>
                                     </StackPanel>
                                     <Button x:Name="AutomationButton" Grid.Column="1" Content="Start watching" Style="{StaticResource AccentButton}"
                                             VerticalAlignment="Center" Margin="16,0,0,0" Click="ToggleAutomation_Click"/>
@@ -75,26 +75,26 @@
                             </Border>
                             <UniformGrid Columns="2" Margin="0,0,-14,0">
                                 <Border Style="{StaticResource Card}" Margin="0,0,14,14"><StackPanel>
-                                    <TextBlock Text="ACTIVE GAME" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
+                                    <TextBlock Text="GAME" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
                                     <TextBlock x:Name="StatusGame" Text="None" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                 </StackPanel></Border>
                                 <Border Style="{StaticResource Card}" Margin="0,0,14,14"><StackPanel>
                                     <TextBlock Text="RECORDING" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
-                                    <TextBlock x:Name="StatusRecording" Text="Paused" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="StatusRecording" Text="Off" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                 </StackPanel></Border>
                                 <Border Style="{StaticResource Card}" Margin="0,0,14,14"><StackPanel>
-                                    <TextBlock Text="VIBRANCE" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
-                                    <TextBlock x:Name="StatusVibrance" Text="Paused" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <TextBlock Text="COLOURS" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
+                                    <TextBlock x:Name="StatusVibrance" Text="Off" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0"/>
                                 </StackPanel></Border>
                                 <Border Style="{StaticResource Card}" Margin="0,0,14,14"><StackPanel>
-                                    <TextBlock Text="POWER PLAN" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
-                                    <TextBlock x:Name="StatusPower" Text="Paused" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0"/>
+                                    <TextBlock Text="POWER" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
+                                    <TextBlock x:Name="StatusPower" Text="Off" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0"/>
                                 </StackPanel></Border>
                             </UniformGrid>
                             <Border Style="{StaticResource Card}">
                                 <StackPanel>
                                     <Grid><TextBlock Text="Recent activity" FontSize="16" FontWeight="SemiBold"/>
-                                        <Button Content="Open recordings" Click="OpenRecordings_Click" HorizontalAlignment="Right" Margin="0" Padding="10,5"/></Grid>
+                                        <Button Content="Open videos folder" Click="OpenRecordings_Click" HorizontalAlignment="Right" Margin="0" Padding="10,5"/></Grid>
                                     <ListBox x:Name="ActivityList" Margin="0,12,0,0" MaxHeight="135" BorderThickness="0"
                                              Background="Transparent" Foreground="{StaticResource MutedBrush}"/>
                                 </StackPanel>
@@ -107,25 +107,25 @@
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Your games" FontSize="17" FontWeight="SemiBold"/>
-                                <TextBlock Text="Add a game, then tick what you want to happen when you play." Style="{StaticResource Hint}" Margin="0,5,0,16"/>
+                                <TextBlock Text="Add a game and choose what should happen when you play it." Style="{StaticResource Hint}" Margin="0,5,0,16"/>
                                 <DataGrid x:Name="GameGrid" ItemsSource="{Binding Games}" AutoGenerateColumns="False" CanUserAddRows="False"
                                           CanUserDeleteRows="False" SelectionMode="Single" HeadersVisibility="Column" MinHeight="145"
                                           Background="#F0F5F3" Foreground="#18252B" RowBackground="#F0F5F3" AlternatingRowBackground="#E4EEEA"
                                           GridLinesVisibility="Horizontal" BorderThickness="0" RowHeight="36" HorizontalGridLinesBrush="#D3DFDA">
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="GAME NAME" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.1*"/>
-                                        <DataGridTextColumn Header="EXECUTABLE" Binding="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" Width="2.1*"/>
+                                        <DataGridTextColumn Header="NAME" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.1*"/>
+                                        <DataGridTextColumn Header="GAME FILE" Binding="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" Width="2.1*"/>
                                         <DataGridCheckBoxColumn Header="RECORD" Binding="{Binding Record, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
-                                        <DataGridCheckBoxColumn Header="VIBRANCE" Binding="{Binding UseVibrance, UpdateSourceTrigger=PropertyChanged}" Width="90"/>
+                                        <DataGridCheckBoxColumn Header="COLOURS" Binding="{Binding UseVibrance, UpdateSourceTrigger=PropertyChanged}" Width="90"/>
                                     </DataGrid.Columns>
                                 </DataGrid>
                                 <StackPanel Orientation="Horizontal" Margin="0,15,0,0">
-                                    <Button Content="+ Add running game" Click="AddRunningGame_Click"/><Button Content="Find game file" Click="AddGame_Click"/><Button Content="Remove game" Click="RemoveGame_Click"/>
+                                    <Button Content="+ Add open game" Click="AddRunningGame_Click"/><Button Content="Browse for game" Click="AddGame_Click"/><Button Content="Remove" Click="RemoveGame_Click"/>
                                 </StackPanel>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Steam games" FontSize="16" FontWeight="SemiBold"/>
-                                <TextBlock Text="Power settings can apply to all Steam games. Recording and vibrance use the list above." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
+                                <TextBlock Text="The Power page can apply to all Steam games. Recording and colours only use games in the list above." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -135,24 +135,24 @@
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Record with OBS" FontSize="17" FontWeight="SemiBold"/>
-                                <TextBlock Text="Starts OBS for games marked Record, then closes it when you finish." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
+                                <TextBlock Text="Open OBS for games marked Record, and close it after you stop playing." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
                                 <CheckBox Content="Record selected games" IsChecked="{Binding RecordingEnabled}"/>
-                                <TextBlock Text="OBS app" Margin="0,14,0,6" FontWeight="SemiBold"/>
+                                <TextBlock Text="OBS program" Margin="0,14,0,6" FontWeight="SemiBold"/>
                                 <DockPanel><Button DockPanel.Dock="Right" Content="Browse" Click="BrowseObs_Click" Margin="8,0,0,0"/><TextBox Text="{Binding ObsExecutablePath, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
                                 <TextBlock Text="OBS settings folder" Margin="0,14,0,6" FontWeight="SemiBold"/>
                                 <DockPanel><Button DockPanel.Dock="Right" Content="Browse" Click="BrowseObsConfig_Click" Margin="8,0,0,0"/><TextBox Text="{Binding ObsConfigRoot, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
                                 <CheckBox Content="Use OBS portable mode" IsChecked="{Binding ObsPortable}" Margin="0,9,0,2"/>
-                                <TextBlock Text="Save recordings to" Margin="0,14,0,6" FontWeight="SemiBold"/>
+                                <TextBlock Text="Save videos to" Margin="0,14,0,6" FontWeight="SemiBold"/>
                                 <DockPanel><Button DockPanel.Dock="Right" Content="Browse" Click="BrowseRecordingFolder_Click" Margin="8,0,0,0"/><TextBox Text="{Binding RecordingDirectory, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                                    <TextBlock Text="Stop recording after (seconds)" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                    <TextBlock Text="Wait before stopping (seconds)" VerticalAlignment="Center" Margin="0,0,12,0"/>
                                     <TextBox x:Name="StopDelayBox" Width="56" Text="{Binding RecordingStopDelaySeconds, UpdateSourceTrigger=PropertyChanged}"/>
                                 </StackPanel>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
-                                <TextBlock Text="OBS settings" FontSize="16" FontWeight="SemiBold"/>
-                                <TextBlock Text="The game and save folder are updated while OBS is closed. Your audio tracks and other OBS settings stay the same. OBS must be closed for automatic recording." Style="{StaticResource Hint}" Margin="0,7,0,12"/>
-                                <Button Content="Open OBS settings" HorizontalAlignment="Left" Click="OpenObs_Click"/>
+                                <TextBlock Text="Before recording" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Close OBS before a game starts so Meh Tools can update the game and save folder. Your audio and other OBS settings stay the same." Style="{StaticResource Hint}" Margin="0,7,0,12"/>
+                                <Button Content="Open OBS" HorizontalAlignment="Left" Click="OpenObs_Click"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -161,18 +161,18 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
-                                <TextBlock Text="Digital vibrance" FontSize="17" FontWeight="SemiBold"/>
-                                <TextBlock Text="Choose colours for your desktop and selected games. Applies to NVIDIA-connected displays." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
-                                <CheckBox Content="Change vibrance for selected games" IsChecked="{Binding VibranceEnabled}"/>
+                                <TextBlock Text="Colour boost" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="Make colours stronger on your desktop and in selected games. Works with NVIDIA graphics." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
+                                <CheckBox Content="Change colours for selected games" IsChecked="{Binding VibranceEnabled}"/>
                                 <Grid Margin="0,20,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                                    <TextBlock Text="DESKTOP" FontWeight="Bold" Foreground="{StaticResource MutedBrush}" FontSize="10"/>
+                                    <TextBlock Text="WHEN NOT IN A GAME" FontWeight="Bold" Foreground="{StaticResource MutedBrush}" FontSize="10"/>
                                     <TextBlock Grid.Column="1" Text="{Binding DesktopVibrance, StringFormat={}{0}%}" FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Right"/></Grid>
                                 <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding DesktopVibrance}" Margin="0,6,0,8"/>
                                 <Grid Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
-                                    <TextBlock Text="SELECTED GAMES" FontWeight="Bold" Foreground="{StaticResource MutedBrush}" FontSize="10"/>
+                                    <TextBlock Text="WHEN IN A GAME" FontWeight="Bold" Foreground="{StaticResource MutedBrush}" FontSize="10"/>
                                     <TextBlock Grid.Column="1" Text="{Binding GameVibrance, StringFormat={}{0}%}" FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Right"/></Grid>
                                 <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding GameVibrance}" Margin="0,6,0,6"/>
-                                <TextBlock Text="Requires NVIDIA graphics. Some displays may not be supported." Style="{StaticResource Hint}" Margin="0,12,0,0"/>
+                                <TextBlock Text="Needs an NVIDIA graphics card. Some screens may not support this." Style="{StaticResource Hint}" Margin="0,12,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -182,14 +182,14 @@
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Power plans" FontSize="17" FontWeight="SemiBold"/>
-                                <TextBlock Text="Choose a plan for your desktop and games." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
-                                <CheckBox Content="Change power plans for games" IsChecked="{Binding PowerEnabled}"/>
+                                <TextBlock Text="Use one Windows power plan normally, and another while playing." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
+                                <CheckBox Content="Switch power plans when playing" IsChecked="{Binding PowerEnabled}"/>
                                 <CheckBox Content="Use the gaming plan for all Steam games" IsChecked="{Binding PowerForAllSteamGames}"/>
-                                <TextBlock Text="Desktop plan" Margin="0,17,0,6" FontWeight="SemiBold"/>
+                                <TextBlock Text="Normal plan" Margin="0,17,0,6" FontWeight="SemiBold"/>
                                 <ComboBox x:Name="DesktopPlanBox" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding DesktopPowerPlan}"/>
                                 <TextBlock Text="Gaming plan" Margin="0,15,0,6" FontWeight="SemiBold"/>
                                 <ComboBox x:Name="GamingPlanBox" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding GamingPowerPlan}"/>
-                                <TextBlock Text="When Steam games is off, a game in your watch list activates the gaming plan." Style="{StaticResource Hint}" Margin="0,15,0,0"/>
+                                <TextBlock Text="If &quot;all Steam games&quot; is off, only games in your list will switch to the gaming plan." Style="{StaticResource Hint}" Margin="0,15,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -198,24 +198,36 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
-                                <TextBlock Text="Find what slows your game down" FontSize="17" FontWeight="SemiBold"/>
-                                <TextBlock Text="Start a log, play until you notice the problem, then stop and save it. Paste the report into ChatGPT, Claude or Gemini for help." Style="{StaticResource Hint}" Margin="0,6,0,15"/>
+                                <TextBlock Text="Live numbers" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="Show a small window with CPU, GPU, and game frame numbers. To see FPS, choose a game and a PresentMon program." Style="{StaticResource Hint}" Margin="0,6,0,12"/>
+                                <TextBlock Text="Game (for FPS)" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                <ComboBox x:Name="OverlayGame" ItemsSource="{Binding Games}" DisplayMemberPath="Name" SelectedIndex="0"/>
+                                <TextBlock Text="PresentMon program (optional)" FontWeight="SemiBold" Margin="0,12,0,6"/>
+                                <DockPanel><Button Content="Clear" DockPanel.Dock="Right" Click="ClearPresentMon_Click"/><Button Content="Browse…" DockPanel.Dock="Right" Click="BrowsePresentMon_Click"/><TextBox x:Name="PresentMonPath" IsReadOnly="True"/></DockPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <Button x:Name="OverlayButton" Content="Show monitor" Style="{StaticResource AccentButton}" Click="ToggleOverlay_Click"/>
+                                </StackPanel>
+                                <TextBlock x:Name="OverlayStatus" Text="CPU and NVIDIA GPU numbers work without PresentMon." Style="{StaticResource Hint}" Margin="0,8,0,0"/>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Make a performance report" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="Start logging, play until the problem happens, then stop and save. You can share the report with ChatGPT, Claude, or Gemini for help." Style="{StaticResource Hint}" Margin="0,6,0,15"/>
                                 <TextBlock Text="Game (optional)" FontWeight="SemiBold" Margin="0,0,0,6"/>
                                 <ComboBox x:Name="PerformanceGame" ItemsSource="{Binding Games}" DisplayMemberPath="Name" SelectedIndex="0"/>
-                                <TextBlock Text="What happened? (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
+                                <TextBlock Text="What went wrong? (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
                                 <TextBox x:Name="PerformanceNotes" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto"/>
-                                <TextBlock Text="For example: FPS drops during fights, or the game stutters after 10 minutes." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                <TextBlock Text="Example: low FPS in fights, or stuttering after 10 minutes." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                                     <Button x:Name="StartPerformanceButton" Content="Start log" Style="{StaticResource AccentButton}" Click="StartPerformance_Click"/>
                                     <Button x:Name="StopPerformanceButton" Content="Stop and save" IsEnabled="False" Click="StopPerformance_Click"/>
-                                    <Button x:Name="SavePerformanceButton" Content="Save report again" IsEnabled="False" Click="SavePerformance_Click"/>
+                                    <Button x:Name="SavePerformanceButton" Content="Save again" IsEnabled="False" Click="SavePerformance_Click"/>
                                 </StackPanel>
-                                <TextBlock x:Name="PerformanceStatus" Text="Ready to log." FontWeight="SemiBold" Margin="0,14,0,0" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="PerformanceStatus" Text="Ready to start." FontWeight="SemiBold" Margin="0,14,0,0" TextWrapping="Wrap"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
-                                <TextBlock Text="What goes in the report" FontSize="16" FontWeight="SemiBold"/>
-                                <TextBlock Text="Your PC specs, performance samples and anything you type above. It stays on your PC until you share it. Review the file before sharing." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
-                                <TextBlock Text="FPS and frame times aren't measured, so the report can't prove what caused a stutter. An AI can help interpret the evidence and suggest what to test next." Style="{StaticResource Hint}" Margin="0,10,0,0"/>
+                                <TextBlock Text="What's in the report" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="It includes PC details, performance samples, and your notes. The file stays on your PC until you share it." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
+                                <TextBlock Text="The report does not measure FPS or frame times, so it may not show the exact cause. Use it as a starting point." Style="{StaticResource Hint}" Margin="0,10,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -226,19 +238,20 @@
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="App settings" FontSize="17" FontWeight="SemiBold"/>
                                 <CheckBox Content="Start with Windows" IsChecked="{Binding StartWithWindows}" Margin="0,16,0,4"/>
-                                <CheckBox Content="Keep running when I close the window" IsChecked="{Binding MinimizeToTray}"/>
+                                <CheckBox Content="Keep running in the tray when I close the window" IsChecked="{Binding MinimizeToTray}"/>
+                                <CheckBox Content="Minimize to the tray instead of the taskbar" IsChecked="{Binding TrayOnMinimize}"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,15,0,0"><TextBlock Text="Check for games every" VerticalAlignment="Center" Margin="0,0,10,0"/><TextBox x:Name="PollSecondsBox" Width="50" Text="{Binding PollSeconds, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="seconds" VerticalAlignment="Center" Margin="8,0,0,0"/></StackPanel>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Privacy" FontSize="17" FontWeight="SemiBold"/>
-                                <TextBlock Text="Your settings and activity stay on this PC." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
+                                <TextBlock Text="Settings and activity stay on this PC." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
             </TabControl>
             <Border Grid.Row="2" BorderBrush="#2D3C46" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,14,0,0">
-                <TextBlock x:Name="StatusNotice" Text="Click Save to apply changes." Style="{StaticResource Hint}" FontSize="12"/>
+                <TextBlock x:Name="StatusNotice" Text="Click Save to keep your changes." Style="{StaticResource Hint}" FontSize="12"/>
             </Border>
         </Grid>
     </Grid>

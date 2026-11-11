@@ -20,7 +20,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("automation stops retrying after OBS closes", Tests.ClosedObsDoesNotLoop),
     ("automation retries startup failures with a limit", Tests.StartFailureBackoff),
     ("manual changes are respected when disabling automation", Tests.ManualChangesAreRespected),
-    ("performance report captures samples without exposing paths", Tests.PerformanceReport)
+    ("performance report captures samples without exposing paths", Tests.PerformanceReport),
+    ("live frame CSV handles quoted fields", Tests.LiveFrameCsv)
 };
 var failed = 0;
 foreach (var test in tests)
@@ -50,6 +51,13 @@ internal static class Tests
     private static readonly Guid DesktopPlan = Guid.Parse("381b4222-f694-41f0-9685-ff5bb260df2e");
     private static readonly Guid GamingPlan = Guid.Parse("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
 
+    public static Task LiveFrameCsv()
+    {
+        var values = LiveFrameSampler.ParseCsv("game.exe,\"value,with comma\",\"quoted \"\"name\"\"\",16.67,NA");
+        Assert(values.Length == 5 && values[1] == "value,with comma" && values[2] == "quoted \"name\"" && values[3] == "16.67" && values[4] == "NA", "CSV fields were not parsed correctly");
+        return Task.CompletedTask;
+    }
+
     public static async Task PerformanceReport()
     {
         var executable = Environment.ProcessPath ?? throw new Exception("Current executable unavailable");
@@ -69,6 +77,7 @@ internal static class Tests
         using var temp = new TempDirectory();
         var store = new SettingsStore(temp.Path);
         var settings = Settings();
+        settings.TrayOnMinimize = true;
         settings.Games.Add(new GameRule { Name = "Second", ExecutablePath = @"C:\Games\two.exe" });
         var copy = settings.Snapshot();
         settings.Games[0].Name = "Changed";
@@ -77,6 +86,7 @@ internal static class Tests
         settings.GameVibrance = 72;
         store.Save(settings);
         Assert(store.Load()!.GameVibrance == 72, "latest setting not saved");
+        Assert(store.Load()!.TrayOnMinimize, "minimize-to-tray option was not saved");
         Assert(File.Exists(store.SettingsPath + ".bak"), "old settings were not backed up");
         Assert(File.ReadAllText(store.SettingsPath + ".bak").Contains("\"GameVibrance\": 80"), "backup was not the previous settings");
         settings.GameVibrance = 73;

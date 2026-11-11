@@ -21,12 +21,12 @@ public partial class MainWindow
     private async void StartPerformance_Click(object sender, RoutedEventArgs e)
     {
         if (_performanceBusy || _performanceLogger is not null) return;
-        if (!_performanceReportSaved && MessageBox.Show(this, "Your last report hasn't been saved. Start a new log anyway?", "Unsaved report", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (!_performanceReportSaved && MessageBox.Show(this, "Your last report isn't saved. Start a new log anyway?", "Unsaved report", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         _performanceBusy = true;
         StartPerformanceButton.IsEnabled = false;
         try
         {
-            PerformanceStatus.Text = "Starting log...";
+            PerformanceStatus.Text = "Starting…";
             var game = PerformanceGame.SelectedItem as GameRule;
             _performanceLogger = await PerformanceLogger.StartAsync(game?.ExecutablePath);
             _performanceReport = null;
@@ -43,8 +43,8 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            PerformanceStatus.Text = "Couldn't start the log.";
-            MessageBox.Show(this, ex.Message, "Couldn't start log", MessageBoxButton.OK, MessageBoxImage.Warning);
+            PerformanceStatus.Text = "Couldn't start logging.";
+            MessageBox.Show(this, ex.Message, "Couldn't start", MessageBoxButton.OK, MessageBoxImage.Warning);
             StartPerformanceButton.IsEnabled = true;
         }
         finally { _performanceBusy = false; }
@@ -53,7 +53,7 @@ public partial class MainWindow
     private void PerformanceTimer_Tick(object? sender, EventArgs e)
     {
         var elapsed = DateTime.UtcNow - _performanceStarted;
-        PerformanceStatus.Text = $"Logging for {(int)elapsed.TotalMinutes:00}:{elapsed.Seconds:00}. Play until the problem happens.";
+        PerformanceStatus.Text = $"Logging ({(int)elapsed.TotalMinutes:00}:{elapsed.Seconds:00}). Play until the problem happens.";
     }
 
     private async void StopPerformance_Click(object sender, RoutedEventArgs e) => await StopPerformanceAsync(true);
@@ -63,7 +63,7 @@ public partial class MainWindow
         if (_performanceBusy || _performanceLogger is null) return false;
         _performanceBusy = true;
         StopPerformanceButton.IsEnabled = false;
-        PerformanceStatus.Text = "Finishing report...";
+        PerformanceStatus.Text = "Creating report…";
         try
         {
             var report = await _performanceLogger.StopAsync();
@@ -77,14 +77,14 @@ public partial class MainWindow
             SavePerformanceButton.IsEnabled = true;
             StartPerformanceButton.IsEnabled = true;
             PerformanceGame.IsEnabled = true;
-            PerformanceStatus.Text = "Log finished. Save the report when you're ready.";
+            PerformanceStatus.Text = "Report ready. Click Save.";
             return !save || SavePerformanceReport();
         }
         catch (Exception ex)
         {
-            PerformanceStatus.Text = "Couldn't finish the report.";
+            PerformanceStatus.Text = "Couldn't create the report.";
             StopPerformanceButton.IsEnabled = _performanceLogger is not null;
-            MessageBox.Show(this, ex.Message, "Couldn't finish log", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, ex.Message, "Couldn't finish", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
         finally { _performanceBusy = false; }
@@ -101,7 +101,7 @@ public partial class MainWindow
         {
             File.WriteAllText(picker.FileName, _performanceReport, new UTF8Encoding(false));
             _performanceReportSaved = true;
-            PerformanceStatus.Text = "Report saved. Open it and paste it into your AI chat.";
+            PerformanceStatus.Text = "Report saved. You can open it or share it for help.";
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
