@@ -13,7 +13,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\MehTools.ico</ApplicationIcon>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <AssemblyName>MehTools</AssemblyName>
     <Product>Meh Tools</Product>
     <Title>Meh Tools</Title>

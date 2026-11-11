@@ -1,10 +1,13 @@
 name: Package Windows app
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
@@ -18,9 +21,32 @@ jobs:
         run: dotnet run --project tests/JamesTools.Tests -c Release
       - name: Publish self-contained app
         run: dotnet publish src/JamesTools/JamesTools.csproj -c Release -r win-x64 --self-contained true -p:DebugType=None -o artifacts/publish
-      - name: Create archive
-        run: Compress-Archive -Path artifacts/publish/* -DestinationPath artifacts/MehTools-win-x64.zip
-      - uses: actions/upload-artifact@v4
+      - name: Read app version
+        id: version
+        run: |
+          $version = (Get-Item artifacts/publish/MehTools.exe).VersionInfo.ProductVersion
+          $version = ($version -split '\+')[0]
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Zip portable build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: Compress-Archive -Path artifacts/publish/* -DestinationPath "artifacts/MehTools-$env:VERSION-win-x64.zip"
+      - name: Build installer
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y }
+          iscc "/DAppVersion=$env:VERSION" installer/MehTools.iss
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: MehTools-win-x64
-          path: artifacts/MehTools-win-x64.zip
+          name: MehTools-${{ steps.version.outputs.version }}-win-x64
+          path: |
+            artifacts/*.zip
+            artifacts/installer/*.exe
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release create "$env:GITHUB_REF_NAME" --title "Meh Tools $env:GITHUB_REF_NAME" --generate-notes "artifacts/MehTools-$env:VERSION-win-x64.zip" "artifacts/installer/MehTools-setup-$env:VERSION-win-x64.exe"
