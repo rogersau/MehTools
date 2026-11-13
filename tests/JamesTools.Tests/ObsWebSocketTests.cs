@@ -148,6 +148,8 @@ internal static class ObsWebSocketTests
                 var d = statusRequest.RootElement.GetProperty("d");
                 Assert(d.GetProperty("requestType").GetString() == "GetRecordStatus", "wrong status request type");
                 var id = d.GetProperty("requestId").GetString();
+                await SendAsync(socket, JsonSerializer.Serialize(new { op = 5, d = new { eventType = "RecordStateChanged", eventData = new { outputActive = false, outputState = "OBS_WEBSOCKET_OUTPUT_PAUSED" } } }));
+                await SendAsync(socket, JsonSerializer.Serialize(new { op = 5, d = new { eventType = "RecordFileChanged", eventData = new { newOutputPath = savedPath } } }));
                 await SendAsync(socket, JsonSerializer.Serialize(new { op = 5, d = new { eventType = "RecordStateChanged", eventData = new { outputActive = false, outputState = "OBS_WEBSOCKET_OUTPUT_STOPPED", outputPath = savedPath } } }));
                 await SendAsync(socket, JsonSerializer.Serialize(new { op = 7, d = new { requestType = "GetRecordStatus", requestId = "unrelated-id", requestStatus = new { result = true, code = 100 }, responseData = new { } } }));
                 await SendAsync(socket, JsonSerializer.Serialize(new { op = 7, d = new { requestType = "GetRecordStatus", requestId = id, requestStatus = new { result = true, code = 100 }, responseData = new { outputActive = true, outputPaused = false, outputDuration = 12345, outputBytes = 67890 } } }));
@@ -181,10 +183,15 @@ internal static class ObsWebSocketTests
 
         await using var client = new ObsWebSocketClient();
         ObsRecordStateChangedEventArgs? stoppedEvent = null;
-        client.RecordStateChanged += (_, e) => stoppedEvent = e;
+        ObsRecordStateChangedEventArgs? pausedEvent = null;
+        string? splitPath = null;
+        client.RecordStateChanged += (_, e) => { if (e.Paused) pausedEvent = e; else stoppedEvent = e; };
+        client.RecordFileChanged += (_, e) => splitPath = e.OutputPath;
         await client.ConnectAsync(server.Port, password);
         var status = await client.GetRecordStatusAsync();
         Assert(status.Active && !status.Paused && status.DurationMilliseconds == 12345 && status.Bytes == 67890, "GetRecordStatus fields were not parsed");
+        Assert(pausedEvent is { Active: true, Paused: true }, "paused event was treated as ended recording");
+        Assert(splitPath == savedPath, "file split event was not delivered");
         Assert(stoppedEvent is { Active: false, OutputPath: var eventPath } && eventPath == savedPath, "stopped output path event was not captured");
         Assert(await client.StopRecordAsync() == savedPath, "StopRecord outputPath was not parsed");
         await client.PauseRecordAsync();

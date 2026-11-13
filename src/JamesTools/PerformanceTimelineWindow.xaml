@@ -30,6 +30,13 @@
         </StackPanel>
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
             <StackPanel>
+                <StackPanel x:Name="NetworkPanel">
+                <TextBlock Text="ICMP network observations · retained samples, no interpolation" FontWeight="SemiBold"/>
+                <ComboBox x:Name="NetworkTarget" SelectionChanged="NetworkTarget_SelectionChanged"/>
+                <TextBlock x:Name="NetworkSummary" TextWrapping="Wrap"/>
+                <Canvas x:Name="NetworkPlot" Height="145" Background="#202B30" SizeChanged="Plot_SizeChanged"/>
+                <DataGrid x:Name="NetworkTable" Height="130" IsReadOnly="True" AutoGenerateColumns="True" CanUserAddRows="False"/>
+                </StackPanel>
                 <Canvas x:Name="FramePlot" Height="145" Background="#202B30" Margin="0,2,0,3" SizeChanged="Plot_SizeChanged"/>
                 <Canvas x:Name="CpuGpuPlot" Height="145" Background="#202B30" Margin="0,2,0,3" SizeChanged="Plot_SizeChanged"/>
                 <Canvas x:Name="MemoryPlot" Height="145" Background="#202B30" Margin="0,2,0,3" SizeChanged="Plot_SizeChanged"/>

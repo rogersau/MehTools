@@ -103,13 +103,15 @@ public partial class MainWindow : Window
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
 
         _appliedSettings = _settings.Snapshot();
+        ApplyRecordingHealthSettings();
         _automation = new AutomationService(_appliedSettings, _dataDirectory);
+        _automation.RecordingLifecycleChanged += AutomationRecordingLifecycleChanged;
         _automation.StatusChanged += status => Dispatcher.BeginInvoke(() => ShowStatus(status));
         _automation.Activity += message => Dispatcher.BeginInvoke(() => AddActivity(message));
         _automation.Notify += notification => Dispatcher.BeginInvoke(() => ShowTrayNotification(notification));
         _automation.Start();
         RefreshSessionList();
-        SourceInitialized += (_, _) => { ApplyOverlayHotkey(); ApplySaveClipHotkey(); ApplyStutterMarkerHotkey(); };
+        SourceInitialized += (_, _) => { ApplyOverlayHotkey(); ApplySaveClipHotkey(); ApplyStutterMarkerHotkey(); ApplyBookmarkHotkey(); ApplyRollingHotkey(); };
         AddActivity(initialMessage ?? "Ready. Add your games, then click Save.");
         if (initialMessage is not null) StatusNotice.Text = initialMessage;
     }
@@ -146,6 +148,7 @@ public partial class MainWindow : Window
     {
         if (_exiting) return;
         UpdateDetectedSessions(status);
+        UpdateRolling(status);
         StatusGame.Text = status.Game;
         StatusRecording.Text = status.Recording;
         StatusVibrance.Text = status.Vibrance;
@@ -232,6 +235,7 @@ public partial class MainWindow : Window
             }
             _automation.UpdateSettings(_settings);
             _appliedSettings = _settings.Snapshot();
+            ApplyRecordingHealthSettings();
             RefreshRecordingStorageTargets();
             _ = RefreshStorageVisibilityAsync();
             UpdateAutomationButton();
@@ -239,6 +243,7 @@ public partial class MainWindow : Window
             ApplyOverlayHotkey();
             ApplySaveClipHotkey();
             ApplyStutterMarkerHotkey();
+            ApplyBookmarkHotkey(); ApplyRollingHotkey();
             AddActivity("Settings saved.");
             return true;
         }
@@ -316,11 +321,19 @@ public partial class MainWindow : Window
         }
         if (!TryReadWholeNumber(StopDelayBox, "the wait time before stopping", 0, 120, out var stopDelay, out problem)) return false;
         if (!TryReadWholeNumber(ReplayBufferSecondsBox, "the replay buffer length", 15, 600, out var replayBufferSeconds, out problem)) return false;
+        if (!TryReadWholeNumber(RecordingHealthStallSecondsBox, "the recording health stall threshold", 10, 300, out var healthStallSeconds, out problem)) return false;
+        if (!TryReadWholeNumber(RollingBeforeSecondsBox, "the pre-trigger capture interval", 10, 300, out var rollingBefore, out problem)) return false;
+        if (!TryReadWholeNumber(RollingAfterSecondsBox, "the post-trigger capture interval", 0, 60, out var rollingAfter, out problem)) return false;
         if (!TryReadWholeNumber(PollSecondsBox, "the check interval", 2, 30, out var poll, out problem)) return false;
         _settings.RecordingStopDelaySeconds = stopDelay;
         _settings.ReplayBufferSeconds = replayBufferSeconds;
+        _settings.RecordingHealthStallSeconds = healthStallSeconds;
+        _settings.RollingBeforeSeconds = rollingBefore;
+        _settings.RollingAfterSeconds = rollingAfter;
         _settings.PollSeconds = poll;
         SyncAppsToCloseFromBox();
+        try { JamesTools.Core.Diagnostics.NetworkProbeOptions.Create(_settings.NetworkDiagnosticsEnabled, _settings.NetworkTargets); }
+        catch (ArgumentException ex) { problem = ex.Message; return false; }
         // A backup is useful even while machine-specific setup is incomplete.
         if (!validateSetup) return true;
         var errors = SettingsValidation.Validate(_settings);
@@ -446,6 +459,7 @@ public partial class MainWindow : Window
             paused.AutomationEnabled = false;
             _automation.UpdateSettings(paused);
             _appliedSettings = paused;
+            InvalidateRolling();
             _settings.AutomationEnabled = false;
             UpdateAutomationButton();
             StatusNotice.Text = "Watching stopped. Click Save to keep any other changes.";
@@ -922,6 +936,28 @@ public partial class MainWindow : Window
         catch (Exception ex) { StatusNotice.Text = "Stutter marker hotkey error: " + ex.Message; }
     }
 
+    private void ApplyBookmarkHotkey()
+    {
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return;
+            UnregisterHotKey(hwnd, BookmarkHotkeyId);
+            _hwndSource ??= System.Windows.Interop.HwndSource.FromHwnd(hwnd);
+            if (_hwndSource is not null) { _hwndSource.RemoveHook(WndProc); _hwndSource.AddHook(WndProc); }
+            var text = _appliedSettings.BookmarkHotkey ?? "";
+            if (string.IsNullOrWhiteSpace(text)) { StatusNotice.Text = "Bookmark hotkey disabled."; return; }
+            if (!TryParseHotkey(text, out var mod, out var key) || mod == 0)
+            { StatusNotice.Text = "Bookmark hotkey is invalid. Use a key with a modifier, such as Ctrl+Alt+F8, or leave it blank."; return; }
+            if (!RegisterHotKey(hwnd, BookmarkHotkeyId, mod | MOD_NOREPEAT, key))
+                StatusNotice.Text = "Bookmark hotkey could not be registered; it conflicts with another hotkey or application.";
+            else StatusNotice.Text = "Bookmark hotkey applied.";
+        }
+        catch (Exception ex) { StatusNotice.Text = "Bookmark hotkey error: " + ex.Message; }
+    }
+
+    private const int BookmarkHotkeyId = 0x4A57;
+
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == WM_HOTKEY && wParam.ToInt32() == OverlayHotkeyId)
@@ -939,6 +975,10 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(HandleStutterMarkerHotkey);
             handled = true;
         }
+        else if (msg == WM_HOTKEY && wParam.ToInt32() == RollingHotkeyId)
+        { TriggerRolling(); handled = true; }
+        else if (msg == WM_HOTKEY && wParam.ToInt32() == BookmarkHotkeyId)
+        { Dispatcher.BeginInvoke(() => _ = MarkBookmarkAsync(true)); handled = true; }
         return IntPtr.Zero;
     }
 
@@ -987,7 +1027,9 @@ public partial class MainWindow : Window
     {
         if (_exiting) return;
         if (!await PreparePerformanceForExitAsync()) return;
+        if (!CloseConfigSnapshotsForExit()) return;
         _exiting = true;
+        await StopRollingAsync();
         try { _sessionTracker?.Observe(DateTime.UtcNow, false, Array.Empty<SessionGameObservation>()); }
         catch (Exception ex) { AddActivity("Couldn't finish session history: " + ex.Message); }
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
@@ -996,6 +1038,8 @@ public partial class MainWindow : Window
             UnregisterHotKey(hwnd, OverlayHotkeyId);
             UnregisterHotKey(hwnd, SaveClipHotkeyId);
             UnregisterHotKey(hwnd, StutterMarkerHotkeyId);
+            UnregisterHotKey(hwnd, BookmarkHotkeyId);
+            UnregisterHotKey(hwnd, RollingHotkeyId);
         }
         _overlay?.Close();
         Hide();

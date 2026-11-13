@@ -13,6 +13,7 @@ public sealed class AppSettings
     public ObservableCollection<GameRule> Games { get; set; } = [];
     public ObservableCollection<GameProfile> Profiles { get; set; } = [];
 
+    public string MediaToolsFolder { get; set; } = "";
     public bool RecordingEnabled { get; set; }
     public string ObsExecutablePath { get; set; } = "";
     public string ObsConfigRoot { get; set; } = "";
@@ -21,6 +22,9 @@ public sealed class AppSettings
     public int ObsWebSocketPort { get; set; } = 4455;
     public int RecordingStopDelaySeconds { get; set; } = 10;
     public int ReplayBufferSeconds { get; set; } = 60;
+    public bool RecordingHealthAlertsEnabled { get; set; }
+    public bool RecordingHealthSoundEnabled { get; set; }
+    public int RecordingHealthStallSeconds { get; set; } = 30;
     public bool OrganiseCapturesByGameAndDate { get; set; }
     public bool LowStorageWarningsEnabled { get; set; }
     public double LowStorageThresholdGiB { get; set; } = 10;
@@ -45,6 +49,8 @@ public sealed class AppSettings
     public bool ShowNotifications { get; set; } = true;
 
     // Performance / overlay
+    public bool NetworkDiagnosticsEnabled { get; set; }
+    public string NetworkTargets { get; set; } = "";
     public string PresentMonPath { get; set; } = "";
     public bool OverlayShowCpu { get; set; } = true;
     public bool OverlayShowGpu { get; set; } = true;
@@ -56,6 +62,11 @@ public sealed class AppSettings
     public bool OverlayClickThrough { get; set; }
     public string OverlayHotkey { get; set; } = ""; // e.g. Ctrl+Alt+O
     public string SaveClipHotkey { get; set; } = "Ctrl+Alt+F10";
+    public bool RollingDiagnosticsEnabled { get; set; }
+    public int RollingBeforeSeconds { get; set; } = 60;
+    public int RollingAfterSeconds { get; set; } = 15;
+    public string RollingHotkey { get; set; } = "Ctrl+Alt+F7";
+    public string BookmarkHotkey { get; set; } = "Ctrl+Alt+F8";
     public string StutterMarkerHotkey { get; set; } = "Ctrl+Alt+F9";
 
     // Detection
@@ -74,6 +85,9 @@ public sealed class AppSettings
     public AppSettings Snapshot() => new()
     {
         SchemaVersion = SchemaVersion,
+        NetworkDiagnosticsEnabled = NetworkDiagnosticsEnabled,
+        NetworkTargets = NetworkTargets,
+        MediaToolsFolder = MediaToolsFolder,
         AutomationEnabled = AutomationEnabled,
         StartWithWindows = StartWithWindows,
         MinimizeToTray = MinimizeToTray,
@@ -89,6 +103,9 @@ public sealed class AppSettings
         ObsWebSocketPort = ObsWebSocketPort,
         RecordingStopDelaySeconds = RecordingStopDelaySeconds,
         ReplayBufferSeconds = ReplayBufferSeconds,
+        RecordingHealthAlertsEnabled = RecordingHealthAlertsEnabled,
+        RecordingHealthSoundEnabled = RecordingHealthSoundEnabled,
+        RecordingHealthStallSeconds = RecordingHealthStallSeconds,
         OrganiseCapturesByGameAndDate = OrganiseCapturesByGameAndDate,
         LowStorageWarningsEnabled = LowStorageWarningsEnabled,
         LowStorageThresholdGiB = LowStorageThresholdGiB,
@@ -118,6 +135,11 @@ public sealed class AppSettings
         OverlayHotkey = OverlayHotkey,
         SaveClipHotkey = SaveClipHotkey,
         StutterMarkerHotkey = StutterMarkerHotkey,
+        RollingDiagnosticsEnabled = RollingDiagnosticsEnabled,
+        RollingBeforeSeconds = RollingBeforeSeconds,
+        RollingAfterSeconds = RollingAfterSeconds,
+        RollingHotkey = RollingHotkey,
+        BookmarkHotkey = BookmarkHotkey,
         DetectEpicGames = DetectEpicGames,
         DetectGogGames = DetectGogGames,
         DetectEaGames = DetectEaGames,

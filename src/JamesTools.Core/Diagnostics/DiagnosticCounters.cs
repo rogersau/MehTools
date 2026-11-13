@@ -11,11 +11,11 @@ internal sealed class DiagnosticCounters : IDisposable
     private readonly IntPtr _pagesInput, _diskRead, _diskWrite, _diskLatency;
     private bool _primed;
 
-    public DiagnosticCounters()
+    public DiagnosticCounters(bool includeCores = true)
     {
         if (PdhOpenQueryW(null, 0, out _query) != 0) return;
         // Numeric instances avoid localized names and wildcard expansion, including on multi-group PCs.
-        for (ushort group = 0; group < GetActiveProcessorGroupCount(); group++)
+        for (ushort group = 0; includeCores && group < GetActiveProcessorGroupCount(); group++)
             for (var cpu = 0; cpu < GetActiveProcessorCount(group); cpu++)
             {
                 var name = string.Create(CultureInfo.InvariantCulture, $"{group},{cpu}");

@@ -95,6 +95,7 @@ public partial class MainWindow
         SessionAttachments.ItemsSource = session?.Attachments.OrderByDescending(a => a.ObservedUtc)
             .Select(a => new AttachmentListEntry(a)).ToArray() ?? [];
         UpdateSessionFileButtons();
+        RefreshBookmarks();
         CompareSessionButton.IsEnabled = session is not null;
     }
 
@@ -141,8 +142,23 @@ public partial class MainWindow
         catch (Exception ex) { SessionsStatus.Text = "Couldn't attach file: " + ex.Message; }
     }
 
-    private void OpenSessionFile_Click(object sender, RoutedEventArgs e) => RunWithSelectedAttachment(path =>
-        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }));
+    private void OpenSessionFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (SessionAttachments.SelectedItem is not AttachmentListEntry entry) return;
+        var id = (SessionsList.SelectedItem as SessionListEntry)?.Session.Id;
+        if (entry.Attachment.Kind is SessionAttachmentKind.Recording or SessionAttachmentKind.Clip)
+        {
+            try { OpenMediaReview(entry.Attachment.Path, TimeSpan.Zero, id); }
+            catch (Exception ex) { SessionsStatus.Text = "Couldn't open recording: " + ex.Message; }
+        }
+        else RunWithSelectedAttachment(path => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }));
+    }
+    private void OpenMediaReview(string path, TimeSpan position, Guid? sessionId)
+    {
+        new RecordingPlaybackWindow(path, position, _appliedSettings.MediaToolsFolder,
+            target => { if (_sessionStore is null) throw new IOException("Clip published, but session history is unavailable; attach it manually later."); _sessionStore.AddAttachment(sessionId, "Unassigned clip", "", SessionAttachmentKind.Clip, target, DateTime.UtcNow); RefreshSessionList(); },
+            folder => { var saved = _appliedSettings.Snapshot(); saved.MediaToolsFolder = folder; _store.Save(saved); _settings.MediaToolsFolder = folder; _appliedSettings.MediaToolsFolder = folder; }) { Owner = this }.Show();
+    }
 
     private void ShowSessionFile_Click(object sender, RoutedEventArgs e) => RunWithSelectedAttachment(path =>
         Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }));

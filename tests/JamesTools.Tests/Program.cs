@@ -5,11 +5,20 @@ using JamesTools.Core.Diagnostics;
 using JamesTools.Core.Platform;
 using JamesTools.Core.Recording;
 
+if (args.Contains("--media-integration")) await MediaTests.Integration();
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("performance history versions, groups, compatibility and persistence", PerformanceHistoryTests.Run),
+    ("configuration snapshots and guarded single-file restore", ConfigSnapshotTests.Run),
+    ("network diagnostics fake collectors, summaries, retention and validation", NetworkProbeTests.Run),
+    ("benchmark recipes, runner timing, persistence and comparability", BenchmarkTests.Run),
+    ("media parsing, ranges, arguments and settings", MediaTests.Run),
+    ("rolling hardware diagnostic capture", RollingTests.Run),
+    ("recording bookmarks capture identity and persistence", BookmarkTests.Run),
     ("settings round trip and snapshot isolation", Tests.SettingsRoundTrip),
     ("settings export/import preserves positions and apps", Tests.SettingsExportImport),
     ("settings validation and duplicate paths", Tests.ValidateSettings),
+    ("deterministic recording health alerts and settings", RecordingHealthTests.Run),
     ("vibrance target settings round trip and validation", Tests.VibranceTargetSettings),
     ("profile resolution precedence, legacy defaults and overlay presets", Tests.ProfileResolution),
     ("profile reference validation and protected deletion", Tests.ProfileReferencesAndDeletion),
@@ -24,6 +33,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OBS refuses hidden capture and concurrent edits", Tests.ObsRejectsUnsafeChanges),
     ("OBS WebSocket auth, requests, status, paths, timeouts and disconnects", ObsWebSocketTests.Run),
     ("automation transitions and recording grace period", Tests.AutomationTransitions),
+    ("managed stop intents cover watching disabled", Tests.WatchingOffStopIntent),
     ("recording follows a second selected game", Tests.RecordingSwitchesGames),
     ("alias recorder target keeps canonical game ownership", Tests.AliasRecordingTarget),
     ("automation does not own an existing OBS", Tests.ExistingObsIsNotStopped),
@@ -493,12 +503,16 @@ internal static class Tests
         var clock = new FakeClock();
         await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => clock.Now);
         AutomationStatus? latest = null;
+        var lifecycle = new List<AutomationRecordingLifecycle>();
         automation.StatusChanged += status => latest = status;
+        automation.RecordingLifecycleChanged += state => lifecycle.Add(state);
         await automation.TickForTestsAsync();
         Assert(platform.Vibrance == 50 && platform.Power == DesktopPlan, "desktop settings incorrect");
         platform.Processes = [new RunningProcess(10, "game.exe", GamePath)];
         await automation.TickForTestsAsync();
         Assert(recorder.Starts == 1 && recorder.Owned && platform.Vibrance == 80 && platform.Power == GamingPlan, "game transition failed");
+        Assert(lifecycle.Count == 1 && lifecycle[0].IsOwned && !lifecycle[0].IntentionalStop && lifecycle[0].RequestedMode == CaptureMode.Recording,
+            "managed recording start lifecycle did not carry its confirmed requested capture mode");
         Assert(latest?.Recording == "OBS launched (recording requested)" && latest.Headline == "OBS launched", "process liveness was presented as confirmed recording");
         platform.Processes = [];
         await automation.TickForTestsAsync();
@@ -506,6 +520,34 @@ internal static class Tests
         clock.Now = clock.Now.AddSeconds(11);
         await automation.TickForTestsAsync();
         Assert(!recorder.Owned && recorder.Stops == 1, "owned recording did not stop after grace");
+        Assert(lifecycle.Count == 3 && lifecycle[1].IsOwned && lifecycle[1].IntentionalStop && !lifecycle[2].IsOwned && lifecycle[2].IntentionalStop,
+            "game-end stop intent was not published before stop and completion");
+    }
+
+    public static async Task WatchingOffStopIntent()
+    {
+        using var temp = new TempDirectory();
+        var settings = Settings();
+        settings.AutomationEnabled = true;
+        var platform = new FakePlatform { Processes = [new RunningProcess(10, "game.exe", GamePath)] };
+        var recorder = new FakeRecorder();
+        await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => DateTime.UtcNow);
+        var lifecycle = new List<AutomationRecordingLifecycle>();
+        automation.RecordingLifecycleChanged += state => lifecycle.Add(state);
+        await automation.TickForTestsAsync();
+        settings.AutomationEnabled = false;
+        automation.UpdateSettings(settings);
+        recorder.StopException = new IOException("simulated stop failure");
+        try { await automation.TickForTestsAsync(); throw new Exception("expected stop failure"); }
+        catch (IOException) { }
+        Assert(recorder.Owned && lifecycle.Count == 3 && lifecycle[1].IntentionalStop && !lifecycle[2].IntentionalStop && lifecycle[2].IsOwned,
+            "thrown stop request did not release health suppression");
+        lifecycle.RemoveRange(1, 2);
+        recorder.StopException = null;
+        await automation.TickForTestsAsync();
+        Assert(recorder.Stops == 2 && !recorder.Owned, "turning watching off did not stop the owned recorder");
+        Assert(lifecycle.Count == 3 && lifecycle[1].IsOwned && lifecycle[1].IntentionalStop && !lifecycle[2].IsOwned && lifecycle[2].IntentionalStop,
+            "watching-off stop intent was not ordered before the recorder stop");
     }
 
     public static async Task ExistingObsIsNotStopped()
@@ -951,6 +993,7 @@ internal sealed class FakeRecorder : IRecordingController
     public ObsSettings? LastSettings { get; private set; }
     public RecorderStartStatus Result { get; set; } = RecorderStartStatus.Started;
     public bool IsOwnedRecording => Owned;
+    public Exception? StopException { get; set; }
     public RecorderStartResult TryStart(ObsSettings settings, int gamePid, string gameExePath)
     {
         LastSettings = settings;
@@ -960,7 +1003,13 @@ internal sealed class FakeRecorder : IRecordingController
         Owned = Result == RecorderStartStatus.Started;
         return new RecorderStartResult(Result, Result.ToString());
     }
-    public Task<bool> StopOwnedAsync() { Stops++; Owned = false; return Task.FromResult(true); }
+    public Task<bool> StopOwnedAsync()
+    {
+        Stops++;
+        if (StopException is not null) return Task.FromException<bool>(StopException);
+        Owned = false;
+        return Task.FromResult(true);
+    }
     public void Dispose() { }
 }
 

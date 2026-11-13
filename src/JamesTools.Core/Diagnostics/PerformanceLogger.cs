@@ -43,10 +43,14 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
     private readonly List<(TimeSpan Offset, string Note, string Context)> _markers = new();
     private string _lastContext = "";
     private readonly FrameReportCollector? _frames;
+    private readonly NetworkProbeCollector? _network;
+    private readonly CancellationTokenRegistration _captureCancellation;
     private string? _frameStatus;
 
-    private PerformanceLogger(string? executablePath, string? presentMonPath, string? frameUnavailableReason)
+    private PerformanceLogger(string? executablePath, string? presentMonPath, string? frameUnavailableReason, NetworkProbeOptions? networkOptions = null, CancellationToken captureCancellation = default)
     {
+        // Validate before starting any owned sampler/process.
+        if (networkOptions is not null) networkOptions=NetworkProbeOptions.Create(networkOptions.Enabled,string.Join("\n",networkOptions.Targets));
         _executablePath = string.IsNullOrWhiteSpace(executablePath) ? null : Path.GetFullPath(executablePath);
         if (!string.IsNullOrWhiteSpace(presentMonPath) && !string.IsNullOrWhiteSpace(_executablePath))
         {
@@ -56,7 +60,9 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
         else _frameStatus = _executablePath is null
             ? string.IsNullOrWhiteSpace(frameUnavailableReason) ? "No game selected; frame capture not requested." : "Frame capture unavailable: " + frameUnavailableReason
             : "PresentMon not found or not configured.";
+        if (networkOptions is { Enabled:true }) _network = new NetworkProbeCollector(networkOptions, new SystemNetworkProbeBackend(), new StopwatchNetworkClock(_elapsed), _stop.Token);
         _sampling = Task.Run(SampleLoopAsync);
+        _captureCancellation = captureCancellation.Register(() => _stop.Cancel());
     }
 
     /// <summary>Starts sampling immediately. The optional path selects matching processes and is never included in the report.</summary>
@@ -71,6 +77,13 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(new PerformanceLogger(executablePath, presentMonPath, frameUnavailableReason));
+    }
+
+    public static Task<PerformanceLogger> StartAsync(string? executablePath, string? presentMonPath,
+        string? frameUnavailableReason, NetworkProbeOptions networkOptions, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(new PerformanceLogger(executablePath, presentMonPath, frameUnavailableReason, networkOptions, cancellationToken));
     }
 
     public void AddMarker(string? note = null)
@@ -104,6 +117,9 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
 
     public async ValueTask DisposeAsync() => await StopAsync().ConfigureAwait(false);
 
+    /// <summary>Sampling failure, if the collector ended before an explicit stop.</summary>
+    public string? SamplingError => _samplingError ?? _frames?.CaptureError;
+
     private async Task<string> StopCoreAsync()
     {
         _elapsed.Stop();
@@ -117,8 +133,10 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
             var remaining = _frames.TakeInterval();
             if (remaining.Count > 0) AddTimeline(DiagnosticRow.ForFrames(remaining));
         }
+        if (_network is not null) await _network.DisposeAsync().ConfigureAwait(false);
         var report = BuildReport();
         _frames?.Dispose();
+        _captureCancellation.Dispose();
         _stop.Dispose();
         return report;
     }

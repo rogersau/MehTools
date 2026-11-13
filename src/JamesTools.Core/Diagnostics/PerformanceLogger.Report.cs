@@ -107,6 +107,11 @@ public sealed partial class PerformanceLogger
         text.AppendLine("Review the player context, capture quality, frame percentiles, worst frames, markers, memory trend and timeline. Explain evidence separately from hypotheses. Check whether slow frame windows coincide with high logical CPU load, GPU load, private memory/commit growth, hard paging or disk activity. Allow for loading, menus, alt-tab, FPS caps and frame generation. Do not assert a bottleneck, memory leak, thermal throttling or need for an upgrade from averages alone. Prioritize a few controlled repeatable tests with one setting changed at a time; explain what each result would confirm or disprove. Ask for missing game settings or measurements before recommending purchases.");
         text.AppendLine().AppendLine("## Machine summary (JSON)").AppendLine("```json").AppendLine(BuildMachineSummaryJson(frames)).AppendLine("```");
         AppendTimeline(text);
+        if (_network is not null)
+        {
+            text.AppendLine().AppendLine(NetworkReports.Heading).AppendLine(NetworkReports.Explanation);
+            text.AppendLine("```json").AppendLine(JsonSerializer.Serialize(_network.Snapshot())).AppendLine("```");
+        }
         return text.ToString();
     }
 
@@ -121,7 +126,8 @@ public sealed partial class PerformanceLogger
             diskReadAvgMiBps = Avg(_diskRead), diskWriteAvgMiBps = Avg(_diskWrite), diskLatencyAvgMs = Avg(_diskLatency),
             gpuAvg = Avg(_gpu), gpuPowerAvgW = Avg(_gpuPower), gpuTempAvgC = Avg(_gpuTemperature), gpuClockAvgMHz = Avg(_gpuClock),
             gpuMemAvgMiB = Avg(_vramUsed), gameCpuAvg = Avg(_gameCpu), gameMemAvgMiB = Avg(_gameMemory), gamePrivateAvgMiB = Avg(_gamePrivate),
-            fpsMethod = "1000/meanFrameMs", fpsAvg = frames?.FpsAvg, frameMsAvg = frames?.FrameMsAvg,
+            driverVersion = _driverVersion, fpsMethod = "1000/meanFrameMs", fpsAvg = frames?.FpsAvg, frameMsAvg = frames?.FrameMsAvg,
+            frameStream = frames?.Stream, frameStreamCount = frames?.StreamCount,
             displayLatencyAvgMs = frames?.LatencyAvg, frameCount = frames?.Count ?? 0,
             frameP50Ms = frames?.Analysis?.P50Ms, frameP95Ms = frames?.Analysis?.P95Ms,
             frameP99Ms = frames?.Analysis?.P99Ms, frameP999Ms = frames?.Analysis?.P999Ms,

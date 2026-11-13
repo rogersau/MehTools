@@ -427,11 +427,30 @@
                                 </StackPanel>
                                 <TextBlock Text="15–600 seconds. OBS treats this as a maximum; keyframes and memory limits may produce shorter clips." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <TextBlock Text="Bookmark hotkey" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                    <TextBox Width="150" Text="{Binding BookmarkHotkey, UpdateSourceTrigger=PropertyChanged}" ToolTip="Ctrl+Alt+F8; blank disables. Apply with Save."/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                     <TextBlock Text="Save clip hotkey" VerticalAlignment="Center" Margin="0,0,12,0"/>
                                     <TextBox x:Name="SaveClipHotkeyBox" Width="150" Text="{Binding SaveClipHotkey, UpdateSourceTrigger=PropertyChanged}" ToolTip="Example: Ctrl+Alt+F10 (leave blank to disable)"/>
                                     <Button Content="Apply hotkey" Click="ApplySaveClipHotkey_Click" Margin="8,0,0,0"/>
                                 </StackPanel>
                                 <TextBlock Text="Global hotkey saves the current OBS replay buffer. Saving requires an explicit WebSocket connection below." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Recording health alerts" FontSize="16" FontWeight="SemiBold"/>
+                                <CheckBox Content="Enable recording health alerts" IsChecked="{Binding RecordingHealthAlertsEnabled}" Margin="0,8,0,2"/>
+                                <TextBlock Text="Requires an explicit OBS connection. Alerts look for a missing start, a stopped output, or possible stalled output from OBS-reported bytes. They cannot verify picture or sound." Style="{StaticResource Hint}" Margin="0,4,0,5"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                                    <TextBlock Text="Possible stall threshold (seconds)" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBox x:Name="RecordingHealthStallSecondsBox" Width="58" MaxLength="3" Text="{Binding RecordingHealthStallSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                             PreviewTextInput="WholeNumber_PreviewTextInput" DataObject.Pasting="WholeNumber_Pasting"/>
+                                    <CheckBox Content="Play a sound for alerts" IsChecked="{Binding RecordingHealthSoundEnabled}" Margin="14,0,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="Start confirmation grace: 20 seconds. Stall threshold: 10–300 seconds (default 30). Pausing suspends checks; resuming starts a fresh window. Byte stagnation can be caused by muxer buffering." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                <TextBlock Text="Health status" Foreground="{StaticResource MutedBrush}" Margin="0,12,0,2"/>
+                                <TextBlock x:Name="RecordingHealthStateText" Text="Disabled" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock x:Name="RecordingHealthReasonText" Text="Recording health alerts are off." TextWrapping="Wrap" Style="{StaticResource Hint}" Margin="0,3,0,0"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Live OBS capture status" FontSize="16" FontWeight="SemiBold"/>
@@ -474,10 +493,12 @@
                                 <WrapPanel Margin="0,4,0,0">
                                     <Button x:Name="ObsStartReplayButton" Content="Start replay buffer" Click="ObsStartReplay_Click" IsEnabled="False"/>
                                     <Button x:Name="ObsStopReplayButton" Content="Stop replay buffer" Click="ObsStopReplay_Click" IsEnabled="False"/>
+                                    <TextBox x:Name="BookmarkLabel" Width="140" ToolTip="Optional bookmark label"/><Button Content="Bookmark moment" Click="Bookmark_Click"/>
                                     <Button x:Name="ObsSaveClipButton" Content="Save clip" Click="ObsSaveClip_Click" IsEnabled="False"/>
                                 </WrapPanel>
                                 <TextBlock Text="Active states confirm OBS outputs, but do not verify the captured picture or sound." Style="{StaticResource Hint}" Margin="0,9,0,0"/>
-                                <TextBlock x:Name="ObsRemoteError" TextWrapping="Wrap" Foreground="#D98272" Margin="0,7,0,0" Visibility="Collapsed"/>
+                                <TextBlock x:Name="BookmarkStatus" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="ObsRemoteError" TextWrapping="Wrap" Foreground="#D98272" Margin="0,7,0,0" Visibility="Collapsed"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Before capture" FontSize="16" FontWeight="SemiBold"/>
@@ -636,18 +657,24 @@
                                 <ComboBox x:Name="PerformanceGame" ItemsSource="{Binding Games}" DisplayMemberPath="Name" SelectedIndex="0"/>
                                 <TextBlock Text="PresentMon program for FPS/frame times (optional override; bundled copy used if available)" FontWeight="SemiBold" Margin="0,12,0,6"/>
                                 <DockPanel><Button Content="Clear" DockPanel.Dock="Right" Click="ClearReportPresentMon_Click"/><Button Content="Browse…" DockPanel.Dock="Right" Click="BrowseReportPresentMon_Click"/><TextBox x:Name="ReportPresentMonPath" Text="{Binding PresentMonPath, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
+                                <CheckBox Content="Include ICMP network diagnostics in explicit logs and benchmarks" IsChecked="{Binding NetworkDiagnosticsEnabled}"/>
+                                <TextBlock Text="Opt-in: enter up to three plain hostnames or IP addresses, one per line. Target names and addresses appear in saved reports. Save settings to apply. No game packet loss or server performance is measured." TextWrapping="Wrap"/>
+                                <TextBox Text="{Binding NetworkTargets, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" Height="65" VerticalScrollBarVisibility="Auto"/>
                                 <TextBlock Text="Game settings and test scene (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
                                 <TextBox x:Name="PerformanceSetup" AcceptsReturn="True" TextWrapping="Wrap" Height="86" MaxLength="4000" VerticalScrollBarVisibility="Auto"/>
                                 <TextBlock Text="Include resolution/render scale, graphics preset/ray tracing, upscaling/frame generation, refresh rate, VSync/FPS cap, game version and map/scene. Mention OBS or other heavy apps running." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
                                 <TextBlock Text="What went wrong, and what performance did you want? (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
                                 <TextBox x:Name="PerformanceNotes" AcceptsReturn="True" TextWrapping="Wrap" Height="72" MaxLength="4000" VerticalScrollBarVisibility="Auto"/>
                                 <TextBlock Text="Example: aiming for 144 FPS; stutters after 10 minutes in fights. Add markers when it happens, and label loading screens or alt-tab so they can be distinguished from gameplay." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                <WrapPanel Margin="0,18,0,0">
+                                    <Button Content="Performance history…" Click="PerformanceHistory_Click"/>
+                                    <Button Content="Benchmark recipes…" Click="BenchmarkRecipes_Click"/>
+                                    <Button Content="Configuration snapshots…" Click="ConfigurationSnapshots_Click"/>
                                     <Button x:Name="StartPerformanceButton" Content="Start log" Style="{StaticResource AccentButton}" Click="StartPerformance_Click"/>
                                     <Button x:Name="StopPerformanceButton" Content="Stop and save" IsEnabled="False" Click="StopPerformance_Click"/>
                                     <Button x:Name="SavePerformanceButton" Content="Save again" IsEnabled="False" Click="SavePerformance_Click"/>
                                     <Button x:Name="ComparePerformanceButton" Content="Compare…" Click="ComparePerformance_Click"/>
-                                </StackPanel>
+                                </WrapPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                     <TextBox x:Name="MarkerNoteBox" Width="260" ToolTip="Marker note"/>
                                     <Button x:Name="AddMarkerButton" Content="Add marker" IsEnabled="False" Click="AddMarker_Click"/>
@@ -670,6 +697,14 @@
                                 </WrapPanel>
                                 <TextBlock Text="For a retest, enter the game settings/test scene above and the single changed setting here. Keep the workload comparable." Style="{StaticResource Hint}" Margin="0,5,0,0"/>
                                 <TextBox x:Name="RetestChangeBox" MaxLength="500" ToolTip="Example: Changed shadow quality from High to Medium"/>
+                                <CheckBox Content="Enable rolling hardware capture (apply with Save)" IsChecked="{Binding RollingDiagnosticsEnabled}"/>
+                                <WrapPanel>
+                                    <TextBlock Text="Before / after seconds, hotkey: "/>
+                                    <TextBox x:Name="RollingBeforeSecondsBox" Width="55" Text="{Binding RollingBeforeSeconds}"/><TextBox x:Name="RollingAfterSecondsBox" Width="55" Text="{Binding RollingAfterSeconds}"/><TextBox Width="150" Text="{Binding RollingHotkey}"/>
+                                    <Button Content="What just happened?" Click="RollingCapture_Click"/><Button Content="Open last capture" Click="OpenRolling_Click"/>
+                                </WrapPanel>
+                                <TextBlock x:Name="RollingStatus" Text="Disabled. System-wide hardware only; warm-up may shorten coverage." TextWrapping="Wrap"/>
+                                <TextBlock x:Name="RollingResultStatus" TextWrapping="Wrap"/>
                                 <TextBlock x:Name="PerformanceStatus" Text="Ready to start." FontWeight="SemiBold" Margin="0,14,0,0" TextWrapping="Wrap"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
@@ -755,6 +790,11 @@
                                         <Button x:Name="ViewSessionReportButton" Content="View report" Click="ViewSessionReport_Click" IsEnabled="False"/>
                                         <Button x:Name="CompareSessionButton" Content="Compare with previous" Click="CompareSession_Click" IsEnabled="False"/>
                                     </WrapPanel>
+                                    <TextBlock Text="Moments for selected session (no selection: Unassigned)"/>
+                                    <Button Content="Show Unassigned moments" Click="ShowUnassignedBookmarks_Click" HorizontalAlignment="Left"/>
+                                    <ListBox x:Name="BookmarkList" Height="150" DisplayMemberPath="Display" SelectionChanged="BookmarkSelection_Changed"/>
+                                    <TextBox x:Name="BookmarkEditLabel"/>
+                                    <WrapPanel><Button Content="Save label" Click="EditBookmark_Click"/><Button Content="Remove moment" Click="RemoveBookmark_Click"/><Button Content="Open at moment" Click="OpenBookmark_Click"/><Button Content="Copy timestamp" Click="CopyBookmark_Click"/></WrapPanel>
                                     <TextBlock x:Name="SessionsStatus" Text="Sessions are stored locally. Duration is detected session time." Style="{StaticResource Hint}" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                 </StackPanel></Border>
                             </StackPanel>

@@ -43,6 +43,9 @@ public partial class PerformanceTimelineWindow : Window
             SampleTable.Columns.Add(Column("Selection", "Selection"));
         }
         SummaryText.Text = $"Original full-report summary: duration {report.Summary.DurationSeconds?.ToString("F1", CultureInfo.InvariantCulture) ?? "unavailable"} s; system samples {report.Summary.SystemSampleCount?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}; CPU/GPU avg {F(report.Summary.CpuAverage)}/{F(report.Summary.GpuAverage)}%; memory avg {F(report.Summary.MemoryAverageMiB)} MiB; FPS avg {F(report.Summary.FpsAverage)}; frame time avg {F(report.Summary.FrameMsAverage)} ms ({report.Summary.FpsMethod ?? "method unavailable"}; {report.Summary.FrameCount?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"} frames). This full-report summary is separate from the selection below.";
+        NetworkTarget.ItemsSource = report.Network?.Targets ?? [];
+        NetworkPanel.Visibility = report.Network is { Enabled:true } ? Visibility.Visible : Visibility.Collapsed;
+        NetworkTarget.SelectedIndex = 0;
         _initializing = false;
         RefreshAnalysis();
     }
@@ -77,7 +80,7 @@ public partial class PerformanceTimelineWindow : Window
         RangeEnd.Text = end.ToString("F3", CultureInfo.InvariantCulture); RefreshAnalysis();
     }
 
-    private void Plot_SizeChanged(object sender, SizeChangedEventArgs e) => DrawPlots();
+    private void Plot_SizeChanged(object sender, SizeChangedEventArgs e) { if (!_initializing) RefreshAnalysis(); }
 
     private void RefreshAnalysis()
     {
@@ -94,10 +97,43 @@ public partial class PerformanceTimelineWindow : Window
         DrawPlots();
     }
 
+    private void NetworkTarget_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_initializing) RefreshAnalysis();
+    }
+    private void RefreshNetwork(double start, double end, IReadOnlyList<ReportExclusion> exclusions)
+    {
+        var all = (_report.Network?.Observations ?? []).Where(r => r.Target == NetworkTarget.SelectedItem as string &&
+            r.SendSeconds >= start && r.ReceiveSeconds <= end).ToArray();
+        bool Included(NetworkObservation r) => !exclusions.Any(x => r.ReceiveSeconds >= x.StartSeconds && r.SendSeconds < x.EndSeconds);
+        var summary = NetworkReports.AnalyzeSelection(all, NetworkTarget.SelectedItem as string ?? "", start, end, exclusions);
+        NetworkSummary.Text = (_report.Network is null ? "No network diagnostics in this report. " : summary + " ") + NetworkReports.Explanation;
+        NetworkTable.ItemsSource = all.Select(r => new { r.Target, r.Address, r.SendSeconds, r.ReceiveSeconds, r.Status, r.RttMs, Selection = Included(r) ? "Retained" : "Excluded" }).ToArray();
+        NetworkPlot.Children.Clear();
+        var width = Math.Max(300, NetworkPlot.ActualWidth);
+        const double left=58, right=14;
+        var plotWidth=Math.Max(1,width-left-right);
+        double X(double seconds)=>left+(seconds-start)/(end-start)*plotWidth;
+        var max = Math.Max(1, all.Select(r => r.RttMs ?? 0).DefaultIfEmpty().Max());
+        AddText(NetworkPlot, $"RTT ms (top {max:F1}); red = timeout, orange = error; range {start:F1}–{end:F1}s", 8, 3, 11, Brushes.White);
+        foreach (var r in all)
+        {
+            var point = new Ellipse { Width = 5, Height = 5, Fill = !Included(r) ? Brushes.Gray : r.Status == "Success" ? Brushes.LightBlue : r.Status == "TimedOut" ? Brushes.Red : Brushes.Orange };
+            Canvas.SetLeft(point, X(r.SendSeconds)-2.5);
+            Canvas.SetTop(point, r.RttMs is double ms ? 120-ms/max*90 : 128); NetworkPlot.Children.Add(point);
+        }
+        foreach (var marker in _report.Markers.Where(m => m.OffsetSeconds >= start && m.OffsetSeconds <= end))
+        {
+            var x = X(marker.OffsetSeconds);
+            AddLine(NetworkPlot,x,25,x,135,Brushes.Yellow,1);
+        }
+    }
+
     private void DrawPlots()
     {
         if (_initializing || !Read(RangeStart.Text, out var start) || !Read(RangeEnd.Text, out var end) || end <= start) return;
         var excluded = _exclusions.ToArray();
+        RefreshNetwork(start,end,excluded.Select(x=>new ReportExclusion(x.Start,x.End,x.Reason)).ToArray());
         var rows = _report.Rows;
         Draw(FramePlot, "Frame window time (ms) · max / window average", start, end, excluded,
             (r) => (r.FrameWindowStartSeconds is double s && r.FrameWindowEndSeconds is double e ? (s + e) / 2 : null, r.FrameMaxMs),

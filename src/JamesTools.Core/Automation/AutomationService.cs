@@ -9,6 +9,7 @@ namespace JamesTools.Core.Automation;
 public sealed record AutomationStatus(string Game, string Recording, string Vibrance, string Power, string Notice, string Headline, string[] ActiveGamePaths);
 
 public sealed record AutomationNotification(string Title, string Message, bool Warning);
+public sealed record AutomationRecordingLifecycle(long Generation, Guid LaunchId, CaptureMode RequestedMode, bool IsOwned, bool IntentionalStop);
 
 /// <summary>Owns only the recording it starts. All other automation remains independent.</summary>
 public sealed class AutomationService : IAsyncDisposable
@@ -32,6 +33,9 @@ public sealed class AutomationService : IAsyncDisposable
     private string? _recordingDirectory;
     private int _recordingGamePid;
     private string _recordingRequested = "recording";
+    private long _recordingGeneration;
+    private Guid _recordingLaunchId;
+    private CaptureMode _recordingCaptureMode;
     private int _attemptPid;
     private int _blockedPid;
     private int _failedAttempts;
@@ -68,6 +72,7 @@ public sealed class AutomationService : IAsyncDisposable
     public event Action<AutomationStatus>? StatusChanged;
     public event Action<string>? Activity;
     public event Action<AutomationNotification>? Notify;
+    public event Action<AutomationRecordingLifecycle>? RecordingLifecycleChanged;
     /// <summary>Configured game path that currently owns automation-launched OBS, when ownership is known.</summary>
     public string? RecordingGamePath => Volatile.Read(ref _recordingGamePath);
 
@@ -97,7 +102,7 @@ public sealed class AutomationService : IAsyncDisposable
         {
             if (_recorder.IsOwnedRecording)
             {
-                var stopped = await _recorder.StopOwnedAsync();
+                var stopped = await StopOwnedWithLifecycleAsync();
                 Log(stopped ? "OBS closed after automation stopped." : "OBS didn't close. It's still open.");
             }
             RestoreManagedSettings(Volatile.Read(ref _settings));
@@ -110,7 +115,7 @@ public sealed class AutomationService : IAsyncDisposable
         {
             if (_recorder.IsOwnedRecording)
             {
-                var stopped = await _recorder.StopOwnedAsync();
+                var stopped = await StopOwnedWithLifecycleAsync();
                 Log(stopped ? "OBS closed after automation stopped." : "OBS didn't close. It's still open.");
             }
             _recordingEndSince = null;
@@ -203,7 +208,7 @@ public sealed class AutomationService : IAsyncDisposable
             }
             var delay = settings.RecordingEnabled ? Math.Clamp(delaySource, 0, 120) : 0;
             if (_utcNow() - _recordingEndSince < TimeSpan.FromSeconds(delay)) return "Stopping soon";
-            var stopped = await _recorder.StopOwnedAsync();
+            var stopped = await StopOwnedWithLifecycleAsync();
             var captureDirectory = _recordingDirectory;
             _recordingEndSince = null;
             Volatile.Write(ref _recordingGamePath, null);
@@ -221,6 +226,11 @@ public sealed class AutomationService : IAsyncDisposable
         }
 
         _recordingEndSince = null;
+        if (_recordingLaunchId != Guid.Empty)
+        {
+            PublishRecordingLifecycle(isOwned: false, intentionalStop: false);
+            _recordingLaunchId = Guid.Empty;
+        }
         if (_recordingGamePid != 0 && matched.Any(g => g.Rule.Record && g.Process.Id == _recordingGamePid))
         {
             _blockedPid = _recordingGamePid;
@@ -290,6 +300,10 @@ public sealed class AutomationService : IAsyncDisposable
                 };
                 Log($"OBS launched with {requested} requested for {selected.Rule.Name}.");
                 _recordingRequested = requested;
+                _recordingCaptureMode = effective.CaptureMode;
+                _recordingLaunchId = Guid.NewGuid();
+                _recordingGeneration++;
+                PublishRecordingLifecycle(isOwned: true, intentionalStop: false);
                 RaiseNotification("OBS launched", $"{requested} requested for {selected.Rule.Name}. Check the Recording page for confirmed OBS output status.", false);
                 return $"OBS launched ({requested} requested)";
             case RecorderStartStatus.WaitingForWindow:
@@ -637,7 +651,10 @@ public sealed class AutomationService : IAsyncDisposable
         if (_loop is not null) await _loop;
         else
         {
-            if (_recorder.IsOwnedRecording) await _recorder.StopOwnedAsync();
+            if (_recorder.IsOwnedRecording)
+            {
+                var stopped = await StopOwnedWithLifecycleAsync();
+            }
             RestoreManagedSettings(Volatile.Read(ref _settings));
         }
         _platform.Dispose();
@@ -647,6 +664,30 @@ public sealed class AutomationService : IAsyncDisposable
     }
 
     internal Task TickForTestsAsync() => TickAsync(Volatile.Read(ref _settings));
+
+    private async Task<bool> StopOwnedWithLifecycleAsync()
+    {
+        PublishRecordingLifecycle(isOwned: true, intentionalStop: true);
+        var stopped = false;
+        try
+        {
+            stopped = await _recorder.StopOwnedAsync();
+            return stopped;
+        }
+        finally
+        {
+            // Even a thrown stop request must release temporary health suppression.
+            PublishRecordingLifecycle(isOwned: !stopped, intentionalStop: stopped);
+            if (stopped) _recordingLaunchId = Guid.Empty;
+        }
+    }
+
+    private void PublishRecordingLifecycle(bool isOwned, bool intentionalStop)
+    {
+        if (_recordingLaunchId == Guid.Empty) return;
+        RecordingLifecycleChanged?.Invoke(new AutomationRecordingLifecycle(
+            _recordingGeneration, _recordingLaunchId, _recordingCaptureMode, isOwned, intentionalStop));
+    }
 }
 public static class AutomationPolicy
 {

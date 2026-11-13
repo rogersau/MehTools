@@ -5,9 +5,13 @@ public static class SettingsValidation
     public static IReadOnlyList<string> Validate(AppSettings settings)
     {
         var errors = new List<string>();
+        try { Diagnostics.NetworkProbeOptions.Create(settings.NetworkDiagnosticsEnabled, settings.NetworkTargets); }
+        catch (ArgumentException ex) { errors.Add(ex.Message); }
+        if (!string.IsNullOrWhiteSpace(settings.MediaToolsFolder) && (!Path.IsPathFullyQualified(settings.MediaToolsFolder) || !Directory.Exists(settings.MediaToolsFolder))) errors.Add("Media tools folder must be an existing absolute folder, or blank for PATH.");
         if (settings.PollSeconds is < 2 or > 30) errors.Add("Check interval must be between 2 and 30 seconds.");
         if (settings.RecordingStopDelaySeconds is < 0 or > 120) errors.Add("Wait time before stopping must be between 0 and 120 seconds.");
         if (settings.ReplayBufferSeconds is < 15 or > 600) errors.Add("Replay buffer length must be between 15 and 600 seconds.");
+        if (settings.RecordingHealthStallSeconds is < 10 or > 300) errors.Add("Recording health stall threshold must be between 10 and 300 seconds.");
         if (!double.IsFinite(settings.LowStorageThresholdGiB) || settings.LowStorageThresholdGiB is < 0 or > 1024 * 1024)
             errors.Add("Low-space threshold must be between 0 and 1,048,576 GiB.");
         if (settings.CleanupSuggestionAgeDays is int age && age is < 1 or > 36500)
@@ -15,7 +19,8 @@ public static class SettingsValidation
         if (settings.CleanupSuggestionBudgetGiB is double budget && (!double.IsFinite(budget) || budget <= 0 || budget > 1024 * 1024))
             errors.Add("Cleanup suggestion budget must be greater than 0 and at most 1,048,576 GiB, or blank to disable.");
         if (settings.ObsWebSocketPort is < 1 or > 65535) errors.Add("OBS WebSocket port must be between 1 and 65535.");
-        var hotkeys = new[] { ("Overlay", settings.OverlayHotkey), ("Save clip", settings.SaveClipHotkey), ("Stutter marker", settings.StutterMarkerHotkey) };
+        if (settings.RollingBeforeSeconds is < 10 or > 300 || settings.RollingAfterSeconds is < 0 or > 60) errors.Add("Rolling capture requires 10–300 seconds before and 0–60 seconds after.");
+        var hotkeys = new[] { ("Rolling capture", settings.RollingHotkey), ("Bookmark", settings.BookmarkHotkey), ("Overlay", settings.OverlayHotkey), ("Save clip", settings.SaveClipHotkey), ("Stutter marker", settings.StutterMarkerHotkey) };
         foreach (var (label, hotkey) in hotkeys)
             if (!string.IsNullOrWhiteSpace(hotkey) && !ValidHotkey(hotkey)) errors.Add($"{label} hotkey is invalid. Use a key with a modifier, such as Ctrl+Alt+F9, or leave it blank.");
         var configuredHotkeys = hotkeys.Where(h => !string.IsNullOrWhiteSpace(h.Item2) && ValidHotkey(h.Item2)).ToArray();

@@ -28,7 +28,7 @@ public partial class MainWindow
 
     private async void StartPerformance_Click(object sender, RoutedEventArgs e)
     {
-        if (_performanceBusy || _performanceLogger is not null) return;
+        if (_benchmarkBusy || _performanceBusy || _performanceLogger is not null) return;
         if (!string.IsNullOrWhiteSpace(_baselineReportPath) && string.IsNullOrWhiteSpace(PerformanceSetup.Text))
         {
             PerformanceStatus.Text = "Record the retest game settings and test scene before starting.";
@@ -64,7 +64,8 @@ public partial class MainWindow
                 _performanceTargetNotice = targetNotice;
             }
             _performanceLogger = await PerformanceLogger.StartAsync(targetPath, presentMon,
-                targetPath is null && game is not null ? _performanceTargetNotice : null);
+                targetPath is null && game is not null ? _performanceTargetNotice : null,
+                NetworkProbeOptions.Create(_appliedSettings.NetworkDiagnosticsEnabled, _appliedSettings.NetworkTargets));
             _performanceSessionId = null;
             _performanceDiagnosticSessionId = null;
             if (_sessionStore is not null)
@@ -185,6 +186,7 @@ public partial class MainWindow
 
     private async Task<bool> PreparePerformanceForExitAsync()
     {
+        if (_benchmarkWindow != null) await _benchmarkWindow.CancelForExitAsync();
         if (_performanceBusy) return false;
         if (_performanceLogger is not null)
         {

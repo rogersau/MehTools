@@ -14,10 +14,14 @@ public sealed record ReportTimelineRow(
 
 public sealed record ReportMachineSummary(int? SchemaVersion, double? DurationSeconds, string? FpsMethod,
     double? FpsAverage, double? FrameMsAverage, double? CpuAverage, double? GpuAverage, double? MemoryAverageMiB,
-    int? SystemSampleCount, int? FrameCount, string? StartedUtc, string? Context, string? Symptoms);
+    int? SystemSampleCount, int? FrameCount, string? StartedUtc, string? Context, string? Symptoms,
+    string? FrameStream = null, int? FrameStreamCount = null, string? NetworkConfiguration = null, double? FrameP99Ms = null, int? FramesOver50Ms = null, string? DriverVersion = null);
 
 public sealed record ParsedPerformanceReport(ReportMachineSummary Summary,
-    IReadOnlyList<ReportTimelineRow> Rows, IReadOnlyList<ReportMarker> Markers);
+    IReadOnlyList<ReportTimelineRow> Rows, IReadOnlyList<ReportMarker> Markers)
+{
+    public NetworkCapture? Network { get; init; }
+}
 
 public sealed record ReportExclusion(double StartSeconds, double EndSeconds, string Reason);
 
@@ -89,7 +93,7 @@ public static class ReportTimeline
         }
         if (headers is null) { error = "The report timeline has no recognized header."; return false; }
         if (rows.Count == 0) { error = "The report timeline has no valid sample rows."; return false; }
-        report = new(summary, rows, markers);
+        report = new(summary, rows, markers) { Network = NetworkReports.Read(text) };
         return true;
     }
 
@@ -200,10 +204,10 @@ public static class ReportTimeline
             if (open >= 0 && close > open) try
             {
                 using var doc = JsonDocument.Parse(text[(open + 7)..close]); var r = doc.RootElement;
-                double? D(string key) => r.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetDouble(out var d) ? d : null;
-                int? I(string key) => r.TryGetProperty(key, out var p) && p.TryGetInt32(out var n) ? n : null;
+                double? D(string key) => r.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetDouble(out var d) && double.IsFinite(d) && d >= 0 ? d : null;
+                int? I(string key) => r.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n) && n >= 0 ? n : null;
                 string? S(string key) => r.TryGetProperty(key, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
-                return new(I("schemaVersion"), D("durationSeconds"), S("fpsMethod"), D("fpsAvg"), D("frameMsAvg"), D("cpuAvg"), D("gpuAvg"), D("memUsedAvgMiB"), I("systemSampleCount"), I("frameCount"), HeaderValue(text, "Started (UTC)"), Section(text, "### Game settings and test scene", "### Symptoms and target performance"), Section(text, "### Symptoms and target performance", null));
+                return new(I("schemaVersion"), D("durationSeconds"), S("fpsMethod"), D("fpsAvg"), D("frameMsAvg"), D("cpuAvg"), D("gpuAvg"), D("memUsedAvgMiB"), I("systemSampleCount"), I("frameCount"), HeaderValue(text, "Started (UTC)"), Section(text, "### Game settings and test scene", "### Symptoms and target performance"), Section(text, "### Symptoms and target performance", null), S("frameStream"), I("frameStreamCount"), NetworkReports.Read(text) is { } network ? JsonSerializer.Serialize(new { network.Enabled, network.Targets, Addresses = network.Observations.Select(o => new { o.Target, o.Address }).Distinct().OrderBy(o => o.Target).ThenBy(o => o.Address).ToArray() }) : null, D("frameP99Ms"), I("framesOver50Ms"), S("driverVersion") ?? HeaderValue(text, "NVIDIA driver"));
             }
             catch { }
         }

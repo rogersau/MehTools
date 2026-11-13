@@ -9,6 +9,7 @@ namespace JamesTools.Core.Recording;
 public sealed record ObsRecordStatus(bool Active, bool Paused, long DurationMilliseconds, long Bytes);
 public sealed record ObsReplayBufferStatus(bool Active);
 public sealed record ObsReplayBufferSavedEventArgs(string OutputPath);
+public sealed record ObsRecordFileChangedEventArgs(string OutputPath);
 
 public sealed record ObsRecordStateChangedEventArgs(bool Active, bool Paused, string? State, string? OutputPath);
 
@@ -44,6 +45,7 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
     }
 
     public event EventHandler<ObsRecordStateChangedEventArgs>? RecordStateChanged;
+    public event EventHandler<ObsRecordFileChangedEventArgs>? RecordFileChanged;
     public event EventHandler<ObsReplayBufferSavedEventArgs>? ReplayBufferSaved;
     public bool IsConnected => Volatile.Read(ref _disposed) == 0 && _identified &&
         !_lifetime.IsCancellationRequested && _socket.State == WebSocketState.Open;
@@ -234,8 +236,13 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
     {
         var data = root.GetProperty("d");
         var eventType = GetString(data, "eventType");
-        if (eventType is not ("ReplayBufferSaved" or "RecordStateChanged")) return;
+        if (eventType is not ("ReplayBufferSaved" or "RecordStateChanged" or "RecordFileChanged")) return;
         var eventData = data.GetProperty("eventData");
+        if (eventType == "RecordFileChanged")
+        {
+            RecordFileChanged?.Invoke(this, new ObsRecordFileChangedEventArgs(GetNullableString(eventData, "newOutputPath") ?? ""));
+            return;
+        }
         if (string.Equals(eventType, "ReplayBufferSaved", StringComparison.Ordinal))
         {
             ReplayBufferSaved?.Invoke(this, new ObsReplayBufferSavedEventArgs(GetNullableString(eventData, "savedReplayPath") ?? ""));
@@ -245,7 +252,7 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         var state = GetNullableString(eventData, "outputState");
         var paused = string.Equals(state, "OBS_WEBSOCKET_OUTPUT_PAUSED", StringComparison.Ordinal);
         RecordStateChanged?.Invoke(this, new ObsRecordStateChangedEventArgs(
-            GetBool(eventData, "outputActive"), paused, state, GetNullableString(eventData, "outputPath")));
+            GetBool(eventData, "outputActive") || paused, paused, state, GetNullableString(eventData, "outputPath")));
     }
 
     private async Task SendJsonAsync(object message, CancellationToken cancellationToken)

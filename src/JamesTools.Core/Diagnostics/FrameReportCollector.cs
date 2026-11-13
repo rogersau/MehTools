@@ -12,6 +12,8 @@ internal sealed class FrameReportCollector : IDisposable
     private readonly string _executable, _session;
     private readonly Stopwatch _elapsed;
     private readonly FrameCaptureData _data = new();
+    private readonly CancellationTokenSource _readStop = new();
+    private string? _captureError;
     private bool _complete, _disposed;
     private string _status = "Collecting frame data…";
 
@@ -29,22 +31,27 @@ internal sealed class FrameReportCollector : IDisposable
     private async Task ReadAsync()
     {
         // Drain stderr without putting executable paths or other unsanitized tool output in a shared report.
-        var errors = _process.StandardError.ReadToEndAsync();
+        var token = _readStop.Token;
+        var errors = _process.StandardError.ReadToEndAsync(token);
         try
         {
-            while (await _process.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line)
+            while (await _process.StandardOutput.ReadLineAsync(token).ConfigureAwait(false) is { } line)
                 lock (_gate) { if (!_complete) _data.AddCsv(line, _elapsed.Elapsed.TotalSeconds); }
-            await _process.WaitForExitAsync().ConfigureAwait(false);
+            lock (_gate) { if (!_complete) _captureError = "Frame collection ended before the requested capture finished."; }
+            await _process.WaitForExitAsync(token).ConfigureAwait(false);
             await errors.ConfigureAwait(false);
             lock (_gate) _status = _process.ExitCode == 0 ? "PresentMon stopped." : "PresentMon exited with code " + _process.ExitCode + "; capture may be incomplete.";
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException or Win32Exception)
-        { lock (_gate) _status = "Frame capture stopped (" + ex.GetType().Name + ")."; }
+        { lock (_gate) { _status = "Frame capture stopped (" + ex.GetType().Name + ")."; if (!_complete) _captureError = _status; } }
+        finally { try { await errors.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); } catch { } }
     }
 
     public void CompleteCapture() { lock (_gate) _complete = true; }
     public FrameInterval TakeInterval() { lock (_gate) return _data.TakeInterval(_elapsed.Elapsed.TotalSeconds); }
     public FrameSummary GetSummary() { lock (_gate) return _data.GetSummary(_status); }
+    public string? CaptureError { get { lock (_gate) return _captureError; } }
 
     public async Task StopAsync()
     {
@@ -58,10 +65,11 @@ internal sealed class FrameReportCollector : IDisposable
         }
         catch { }
         try { if (!_process.HasExited) { try { await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); } catch { try { _process.Kill(true); } catch { } } } } catch { }
-        try { await _reader.ConfigureAwait(false); } catch { }
+        try { await _reader.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false); }
+        catch { _readStop.Cancel(); try { await _reader.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); } catch { } }
     }
 
-    public void Dispose() { if (_disposed) return; _disposed = true; _process.Dispose(); }
+    public void Dispose() { if (_disposed) return; _disposed = true; _readStop.Cancel(); _process.Dispose(); if(_reader.IsCompleted) _readStop.Dispose(); }
 }
 
 /// <summary>Separates presentation streams so auxiliary swapchains cannot inflate game FPS.</summary>
