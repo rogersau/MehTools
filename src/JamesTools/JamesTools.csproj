@@ -19,4 +19,17 @@
     <Title>Meh Tools</Title>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\third_party\PresentMon\PresentMon.exe">
+      <Link>tools\PresentMon\PresentMon.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\third_party\PresentMon\LICENSE.txt">
+      <Link>tools\PresentMon\LICENSE-PresentMon.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

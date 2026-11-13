@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using JamesTools.Core.Configuration;
 
 namespace JamesTools.Core.Recording;
 
@@ -13,7 +14,7 @@ internal static class ObsConfiguration
     internal sealed record Preparation(ObsFileTransaction? Transaction, bool WaitingForWindow, string Message);
 
     internal static Preparation Prepare(string root, string recordingDirectory, int gamePid, string gameExecutable,
-        Func<int, string, GameWindow?> findWindow)
+        Func<int, string, GameWindow?> findWindow, CaptureMode captureMode = CaptureMode.Recording, int replayBufferSeconds = 60)
     {
         var userIniPath = Path.Combine(root, "user.ini");
         if (!File.Exists(userIniPath)) throw new InvalidDataException("OBS user.ini was not found in the selected configuration folder.");
@@ -31,11 +32,30 @@ internal static class ObsConfiguration
         // Parse both files and validate the source before creating backups or modifying anything.
         var profileBytes = File.ReadAllBytes(profilePath);
         var profileIni = IniDocument.Parse(profileBytes);
-        if (string.Equals(profileIni.GetValue("Output", "Mode"), "Advanced", StringComparison.OrdinalIgnoreCase))
+        var outputMode = profileIni.GetValue("Output", "Mode");
+        if (string.Equals(outputMode, "Advanced", StringComparison.OrdinalIgnoreCase))
         {
             var recordingType = profileIni.GetValue("AdvOut", "RecType");
             if (!string.IsNullOrEmpty(recordingType) && !string.Equals(recordingType, "Standard", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("This OBS profile uses a custom recording output. Choose standard recording in OBS before using this folder setting.");
+        }
+        if (captureMode is CaptureMode.Replay or CaptureMode.Both)
+        {
+            if (replayBufferSeconds is < 15 or > 600)
+                throw new InvalidDataException("Replay buffer length must be between 15 and 600 seconds.");
+            string outputSection;
+            if (string.Equals(outputMode, "Advanced", StringComparison.OrdinalIgnoreCase)) outputSection = "AdvOut";
+            else if (string.IsNullOrWhiteSpace(outputMode) || string.Equals(outputMode, "Simple", StringComparison.OrdinalIgnoreCase))
+            {
+                outputSection = "SimpleOutput";
+                var simpleRecordingQuality = profileIni.GetValue(outputSection, "RecQuality");
+                if (string.IsNullOrWhiteSpace(simpleRecordingQuality) ||
+                    string.Equals(simpleRecordingQuality, "Stream", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("This simple OBS profile uses or defaults to ‘Same as stream’ recording quality. Set Recording Quality to a dedicated option in OBS, close OBS, then try again to enable replay clips.");
+            }
+            else throw new InvalidDataException("This OBS profile uses an unsupported output mode. Choose Simple or Advanced output in OBS before using replay capture.");
+            profileIni.SetValue(outputSection, "RecRB", "true");
+            profileIni.SetValue(outputSection, "RecRBTime", replayBufferSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
         var sceneBytes = File.ReadAllBytes(scenePath);
         var sceneText = DecodeUtf8(sceneBytes);

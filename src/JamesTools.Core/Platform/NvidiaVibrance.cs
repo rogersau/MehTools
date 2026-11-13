@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace JamesTools.Core.Platform;
 
-public sealed record VibranceDisplay(int Index, int Percent);
+public sealed record VibranceDisplay(int Index, int Percent, string? DeviceName = null);
 
 /// <summary>Uses NVAPI's display vibrance interface. Constructing and reading never change a display.</summary>
 public sealed class NvidiaVibrance : IDisposable
@@ -17,6 +17,7 @@ public sealed class NvidiaVibrance : IDisposable
     private NvEnumDisplay? enumerate;
     private NvDvc? get;
     private NvDvc? set;
+    private NvGetAssociatedDisplayName? getDisplayName;
     private bool initialized;
     private bool disposed;
 
@@ -37,6 +38,8 @@ public sealed class NvidiaVibrance : IDisposable
             enumerate = Resolve<NvEnumDisplay>(query, 0x9ABDD40D);
             get = Resolve<NvDvc>(query, 0x0E45002D);
             set = Resolve<NvDvc>(query, 0x4A82C2B1);
+            var displayNameAddress = query(0x22A78B05); // NvAPI_GetAssociatedNvidiaDisplayName, NVIDIA NVAPI reference
+            getDisplayName = displayNameAddress == IntPtr.Zero ? null : Marshal.GetDelegateForFunctionPointer<NvGetAssociatedDisplayName>(displayNameAddress);
             var status = initialize();
             if (status == NvidiaDeviceNotFound)
                 throw new InvalidOperationException("No NVIDIA device was found.");
@@ -56,7 +59,39 @@ public sealed class NvidiaVibrance : IDisposable
         lock (gate)
         {
             ThrowIfDisposed();
-            return ReadDisplays().Select(x => new VibranceDisplay(x.Index, PercentOf(x.Info))).ToArray();
+            return ReadDisplays().Select(x => new VibranceDisplay(x.Index, PercentOf(x.Info), x.DeviceName)).ToArray();
+        }
+    }
+
+    /// <summary>Sets one freshly resolved NVIDIA display matching its Windows device identity.</summary>
+    public VibranceDisplay SetDisplay(string deviceName, int percent)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName)) throw new ArgumentException("A Windows display identity is required.", nameof(deviceName));
+        if (percent is < 0 or > 100) throw new ArgumentOutOfRangeException(nameof(percent));
+        lock (gate)
+        {
+            ThrowIfDisposed();
+            var display = ReadDisplays().SingleOrDefault(d => string.Equals(d.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
+            if (display is null) throw new InvalidOperationException($"NVIDIA display '{deviceName}' is unavailable or could not be mapped.");
+            var info = display.Info;
+            info.Current = (int)Math.Round(info.Minimum + ((double)info.Maximum - info.Minimum) * percent / 100.0);
+            try
+            {
+                Check(set!(display.Handle, 0, ref info), $"set vibrance on {deviceName}");
+                var verify = NewInfo();
+                Check(get!(display.Handle, 0, ref verify), $"verify vibrance on {deviceName}");
+                ValidateRange(verify, display.Index);
+                var actual = PercentOf(verify);
+                if (Math.Abs(actual - percent) > 1)
+                    throw new InvalidOperationException($"Vibrance readback on {deviceName} was {actual}%, expected {percent}%.");
+                return new VibranceDisplay(display.Index, actual, display.DeviceName);
+            }
+            catch (Exception ex)
+            {
+                var rollback = display.Info;
+                var restored = set!(display.Handle, 0, ref rollback) == NvOk;
+                throw new InvalidOperationException(ex.Message + (restored ? " Original value restored." : " Rollback failed; check NVIDIA settings."), ex);
+            }
         }
     }
 
@@ -139,7 +174,15 @@ public sealed class NvidiaVibrance : IDisposable
             var info = NewInfo();
             Check(get!(handle, 0, ref info), $"read vibrance on display {index}");
             ValidateRange(info, (int)index);
-            displays.Add(new DisplayInfo((int)index, handle, info));
+            string? deviceName = null;
+            try
+            {
+                var buffer = new byte[64];
+                if (getDisplayName is not null && getDisplayName(handle, buffer) == NvOk)
+                    deviceName = System.Text.Encoding.ASCII.GetString(buffer).TrimEnd('\0');
+            }
+            catch { }
+            displays.Add(new DisplayInfo((int)index, handle, info, deviceName));
         }
 
         if (displays.Count == 0)
@@ -187,11 +230,12 @@ public sealed class NvidiaVibrance : IDisposable
         public int Default;
     }
 
-    private sealed record DisplayInfo(int Index, IntPtr Handle, DvcInfo Info);
+    private sealed record DisplayInfo(int Index, IntPtr Handle, DvcInfo Info, string? DeviceName);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate IntPtr NvQueryInterface(uint id);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvInitialize();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvUnload();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvEnumDisplay(uint index, out IntPtr handle);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvDvc(IntPtr handle, uint outputId, ref DvcInfo info);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvGetAssociatedDisplayName(IntPtr handle, [Out, MarshalAs(UnmanagedType.LPArray, SizeConst = 64)] byte[] displayName);
 }

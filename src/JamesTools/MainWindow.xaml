@@ -3,7 +3,69 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Meh Tools" Width="1180" Height="800" MinWidth="980" MinHeight="690"
         Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}" WindowStartupLocation="CenterScreen"
-        FontFamily="Segoe UI" FontSize="13" Closing="Window_Closing" StateChanged="Window_StateChanged">
+        FontFamily="Segoe UI" FontSize="13" Closing="Window_Closing" StateChanged="Window_StateChanged"
+        Loaded="MainWindow_Loaded" PreviewKeyDown="MainWindow_PreviewKeyDown">
+    <Window.Resources>
+        <Style x:Key="DataGridFocusVisual">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border Margin="-2" BorderBrush="#0E5C4C" BorderThickness="2" SnapsToDevicePixels="True"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="FocusVisualStyle" Value="{StaticResource DataGridFocusVisual}"/>
+        </Style>
+        <Style x:Key="DarkExpander" TargetType="Expander">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Expander">
+                        <StackPanel>
+                            <ToggleButton x:Name="HeaderSite"
+                                          IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Content="{TemplateBinding Header}"
+                                          ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                          Foreground="{StaticResource TextBrush}"
+                                          FocusVisualStyle="{StaticResource KeyboardFocusVisual}"
+                                          HorizontalContentAlignment="Left"
+                                          Padding="0,2"
+                                          Background="Transparent"
+                                          BorderThickness="0">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Path x:Name="Arrow" Data="M 0 0 L 4 4 L 8 0" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.5"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Arrow" Property="Data" Value="M 0 4 L 4 0 L 8 4"/>
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Arrow" Property="Stroke" Value="{StaticResource TextBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter x:Name="ExpandSite" Visibility="Collapsed" Margin="{TemplateBinding Padding}" ContentSource="Content"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="True">
+                                <Setter TargetName="ExpandSite" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Border Grid.Column="0" Background="#141C24" BorderBrush="#2B3841" BorderThickness="0,0,1,0">
@@ -21,6 +83,7 @@
                             <Setter Property="Padding" Value="12,12"/>
                             <Setter Property="Margin" Value="0,2"/>
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}"/>
                             <Setter Property="Template">
                                 <Setter.Value><ControlTemplate TargetType="ListBoxItem">
                                     <Border x:Name="NavBg" CornerRadius="6" Background="Transparent" Padding="{TemplateBinding Padding}">
@@ -35,7 +98,7 @@
                         </Style>
                     </ListBox.ItemContainerStyle>
                     <ListBoxItem Content="◈   Overview"/><ListBoxItem Content="▣   Games"/><ListBoxItem Content="●   Recording"/>
-                    <ListBoxItem Content="◐   Colours"/><ListBoxItem Content="ϟ   Power"/><ListBoxItem Content="▤   Performance"/><ListBoxItem Content="⚙   Settings"/>
+                    <ListBoxItem Content="◐   Colours"/><ListBoxItem Content="ϟ   Power"/><ListBoxItem Content="▤   Performance"/><ListBoxItem Content="⚙   Settings"/><ListBoxItem Content="▧   Sessions"/>
                 </ListBox>
                 <Border Grid.Row="2" Background="#1D2D30" CornerRadius="8" Padding="13">
                     <StackPanel>
@@ -54,7 +117,8 @@
                     <TextBlock x:Name="PageTitle" Text="Overview" FontSize="27" FontWeight="SemiBold"/>
                     <TextBlock x:Name="PageSubtitle" Text="See what's happening and turn watching on or off." Style="{StaticResource Hint}" Margin="0,4,0,0"/>
                 </StackPanel>
-                <Button Grid.Column="1" Content="Save" Style="{StaticResource AccentButton}" Click="Save_Click" VerticalAlignment="Center" Margin="0"/>
+                <Button Grid.Column="1" Content="Save" Style="{StaticResource AccentButton}" Click="Save_Click" VerticalAlignment="Center" Margin="0"
+                        ToolTip="Save settings (Ctrl+S)"/>
             </Grid>
             <TabControl x:Name="Pages" Grid.Row="1" BorderThickness="0" Background="Transparent" Foreground="{StaticResource TextBrush}" Padding="0">
                 <TabControl.Resources><Style TargetType="TabItem"><Setter Property="Visibility" Value="Collapsed"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></Style></TabControl.Resources>
@@ -79,7 +143,7 @@
                                     <TextBlock x:Name="StatusGame" Text="None" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                 </StackPanel></Border>
                                 <Border Style="{StaticResource Card}" Margin="0,0,14,14"><StackPanel>
-                                    <TextBlock Text="RECORDING" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
+                                    <TextBlock Text="CAPTURE" Foreground="{StaticResource MutedBrush}" FontSize="10" FontWeight="Bold"/>
                                     <TextBlock x:Name="StatusRecording" Text="Off" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0" TextWrapping="Wrap"/>
                                 </StackPanel></Border>
                                 <Border Style="{StaticResource Card}" Margin="0,0,14,14"><StackPanel>
@@ -91,6 +155,15 @@
                                     <TextBlock x:Name="StatusPower" Text="Off" FontSize="17" FontWeight="SemiBold" Margin="0,10,0,0"/>
                                 </StackPanel></Border>
                             </UniformGrid>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid><TextBlock Text="Ready check" FontSize="16" FontWeight="SemiBold"/>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button Content="Check before I play" Click="RefreshHealth_Click" Style="{StaticResource AccentButton}" Margin="0" Padding="10,5"/>
+                                        </StackPanel></Grid>
+                                    <TextBlock x:Name="HealthSummary" Margin="0,10,0,0" TextWrapping="Wrap" Style="{StaticResource Hint}" Text="Run a quick readiness check for OBS, colours, power plans, PresentMon, and HDR."/>
+                                </StackPanel>
+                            </Border>
                             <Border Style="{StaticResource Card}">
                                 <StackPanel>
                                     <Grid><TextBlock Text="Recent activity" FontSize="16" FontWeight="SemiBold"/>
@@ -108,24 +181,221 @@
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Your games" FontSize="17" FontWeight="SemiBold"/>
                                 <TextBlock Text="Add a game and choose what should happen when you play it." Style="{StaticResource Hint}" Margin="0,5,0,16"/>
+                                <TextBlock Margin="0,0,0,10" Text="No games yet. Use “+ Add open game” to add a running game, or “Browse for game” to pick its .exe.">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Hint}">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasItems, ElementName=GameGrid}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                                 <DataGrid x:Name="GameGrid" ItemsSource="{Binding Games}" AutoGenerateColumns="False" CanUserAddRows="False"
-                                          CanUserDeleteRows="False" SelectionMode="Single" HeadersVisibility="Column" MinHeight="145"
+                                          CanUserDeleteRows="False" SelectionMode="Single" SelectionUnit="FullRow" HeadersVisibility="Column" MinHeight="145"
                                           Background="#F0F5F3" Foreground="#18252B" RowBackground="#F0F5F3" AlternatingRowBackground="#E4EEEA"
-                                          GridLinesVisibility="Horizontal" BorderThickness="0" RowHeight="36" HorizontalGridLinesBrush="#D3DFDA">
+                                          GridLinesVisibility="Horizontal" BorderThickness="0" RowHeight="36" HorizontalGridLinesBrush="#D3DFDA"
+                                          LoadingRow="GameGrid_LoadingRow" SelectionChanged="GameGrid_SelectionChanged">
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="NAME" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.1*"/>
-                                        <DataGridTextColumn Header="GAME FILE" Binding="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" Width="2.1*"/>
-                                        <DataGridCheckBoxColumn Header="RECORD" Binding="{Binding Record, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
-                                        <DataGridCheckBoxColumn Header="COLOURS" Binding="{Binding UseVibrance, UpdateSourceTrigger=PropertyChanged}" Width="90"/>
+                                        <DataGridTextColumn Header="GAME NAME" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="1.2*" MinWidth="120">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="Margin" Value="8,0"/>
+                                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                                    <Setter Property="ToolTip" Value="{Binding Name}"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="GAME FILE" Binding="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}" Width="2.4*" MinWidth="200">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="Margin" Value="8,0"/>
+                                                    <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                                    <Setter Property="ToolTip" Value="{Binding ExecutablePath}"/>
+                                                    <Setter Property="ToolTipService.ShowDuration" Value="15000"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridCheckBoxColumn Header="CAPTURE" Binding="{Binding Record, UpdateSourceTrigger=PropertyChanged}" Width="84">
+                                            <DataGridCheckBoxColumn.ElementStyle>
+                                                <Style TargetType="CheckBox">
+                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="FocusVisualStyle" Value="{StaticResource DataGridFocusVisual}"/>
+                                                </Style>
+                                            </DataGridCheckBoxColumn.ElementStyle>
+                                            <DataGridCheckBoxColumn.EditingElementStyle>
+                                                <Style TargetType="CheckBox">
+                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="FocusVisualStyle" Value="{StaticResource DataGridFocusVisual}"/>
+                                                </Style>
+                                            </DataGridCheckBoxColumn.EditingElementStyle>
+                                        </DataGridCheckBoxColumn>
+                                        <DataGridCheckBoxColumn Header="COLOURS" Binding="{Binding UseVibrance, UpdateSourceTrigger=PropertyChanged}" Width="94">
+                                            <DataGridCheckBoxColumn.ElementStyle>
+                                                <Style TargetType="CheckBox">
+                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="FocusVisualStyle" Value="{StaticResource DataGridFocusVisual}"/>
+                                                </Style>
+                                            </DataGridCheckBoxColumn.ElementStyle>
+                                            <DataGridCheckBoxColumn.EditingElementStyle>
+                                                <Style TargetType="CheckBox">
+                                                    <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    <Setter Property="FocusVisualStyle" Value="{StaticResource DataGridFocusVisual}"/>
+                                                </Style>
+                                            </DataGridCheckBoxColumn.EditingElementStyle>
+                                        </DataGridCheckBoxColumn>
+                                        <!-- Advanced match rule stays available to MainWindow.xaml.cs; edit it in the selected-game details below. -->
+                                        <DataGridComboBoxColumn x:Name="MatchModeColumn" Header="MATCH" SelectedItemBinding="{Binding MatchMode, UpdateSourceTrigger=PropertyChanged}" Width="90" Visibility="Collapsed"/>
                                     </DataGrid.Columns>
                                 </DataGrid>
+                                <TextBlock Text="Select a row to edit capture mode and advanced options below. The Record and Colours checkboxes are explicit per-game permissions; profiles set values but cannot enable either permission." Style="{StaticResource Hint}" Margin="0,8,0,0"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,15,0,0">
-                                    <Button Content="+ Add open game" Click="AddRunningGame_Click"/><Button Content="Browse for game" Click="AddGame_Click"/><Button Content="Remove" Click="RemoveGame_Click"/>
+                                    <Button Content="+ Add open game" Click="AddRunningGame_Click"/><Button Content="Browse for game" Click="AddGame_Click"/><Button Content="Game profiles…" Click="GameProfiles_Click"/>
+                                    <Button Content="Remove" Click="RemoveGame_Click" ToolTipService.ShowOnDisabled="True" ToolTip="Select a game to remove it.">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding SelectedItem, ElementName=GameGrid}" Value="{x:Null}">
+                                                        <Setter Property="IsEnabled" Value="False"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
                                 </StackPanel>
+                                <Expander IsExpanded="False" Margin="0,14,0,0">
+                                    <Expander.Style>
+                                        <Style TargetType="Expander" BasedOn="{StaticResource DarkExpander}">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding SelectedItem, ElementName=GameGrid}" Value="{x:Null}">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Expander.Style>
+                                    <Expander.Header>
+                                        <TextBlock Text="Advanced options for the selected game" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+                                    </Expander.Header>
+                                    <Border Background="#162029" BorderBrush="#2B3841" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,8,0,0"
+                                            DataContext="{Binding SelectedItem, ElementName=GameGrid}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,14,0">
+                                                <TextBlock Text="Settings profile" FontWeight="SemiBold"/>
+                                                <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=GameProfileAssignmentOptions}"
+                                                          DisplayMemberPath="Name" SelectedValuePath="Id"
+                                                          SelectedValue="{Binding ProfileId, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                                          SelectionChanged="GameOverrideChanged" Margin="0,6,0,0"/>
+                                                <TextBlock Text="The game profile supplies defaults; filled game overrides below take precedence." Style="{StaticResource Hint}" FontSize="12" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,0">
+                                                <TextBlock Text="How to match this game" FontWeight="SemiBold"/>
+                                                <ComboBox SelectedValuePath="Tag" SelectedValue="{Binding MatchMode, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Margin="0,6,0,0"
+                                                          ToolTip="Choose whether this entry matches one exact file, any process with the same name, or any game in the folder.">
+                                                    <ComboBoxItem Content="Exact file path" Tag="path"/>
+                                                    <ComboBoxItem Content="Process name only" Tag="name"/>
+                                                    <ComboBoxItem Content="Any game in folder" Tag="folder"/>
+                                                </ComboBox>
+                                                <TextBlock Text="Exact path watches one .exe. Process name watches any exe with that name. Folder watches any exe in the game folder." Style="{StaticResource Hint}" FontSize="12" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,14,14,0">
+                                                <TextBlock Text="Power plan for this game" FontWeight="SemiBold"/>
+                                                <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=GamePowerPlanOptions}"
+                                                          DisplayMemberPath="Name" SelectedValuePath="Id"
+                                                          SelectedValue="{Binding PowerPlanId, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}" Margin="0,6,0,0"
+                                                          ToolTip="Default follows the global gaming plan and detection rules."/>
+                                                <TextBlock Text="Default follows the global gaming plan and detection rules." Style="{StaticResource Hint}" FontSize="12" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,14,0,0">
+                                                <TextBlock Text="Colour strength (%)" FontWeight="SemiBold"/>
+                                                <TextBox Width="100" HorizontalAlignment="Left" Margin="0,6,0,0" MaxLength="3"
+                                                         Text="{Binding VibrancePercent, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
+                                                         PreviewTextInput="WholeNumber_PreviewTextInput" DataObject.Pasting="WholeNumber_Pasting"
+                                                         ToolTip="0–100. Leave blank to use the global in-game vibrance."/>
+                                                <TextBlock Text="0–100. Blank uses the global in-game vibrance." Style="{StaticResource Hint}" FontSize="12" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,14,14,0">
+                                                <TextBlock Text="Stop delay (seconds)" FontWeight="SemiBold"/>
+                                                <TextBox Width="100" HorizontalAlignment="Left" Margin="0,6,0,0" MaxLength="3"
+                                                         Text="{Binding RecordingStopDelaySeconds, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
+                                                         PreviewTextInput="WholeNumber_PreviewTextInput" DataObject.Pasting="WholeNumber_Pasting"
+                                                         ToolTip="0–120. Leave blank to use the global wait before stopping."/>
+                                                <TextBlock Text="0–120. Blank uses the global wait before stopping." Style="{StaticResource Hint}" FontSize="12" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,14,0,0">
+                                                <TextBlock Text="Capture mode" FontWeight="SemiBold"/>
+                                                <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=CaptureModeOptions}"
+                                                          DisplayMemberPath="Name" SelectedValuePath="Value"
+                                                          SelectedValue="{Binding CaptureMode, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                                          SelectionChanged="GameOverrideChanged"
+                                                          Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="180"/>
+                                                <TextBlock Text="Inherit uses the profile, then global default (Recording). This mode is used the next time OBS launches." Style="{StaticResource Hint}" FontSize="12" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,14,14,0">
+                                                <TextBlock Text="Recording folder override" FontWeight="SemiBold"/>
+                                                <TextBox Text="{Binding RecordingDirectory, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}" TextChanged="GameOverrideChanged" Margin="0,6,0,0" ToolTip="Blank inherits the profile folder, then global folder."/>
+                                                <TextBlock Text="Blank inherits the profile folder, then global Recording settings." Style="{StaticResource Hint}" FontSize="12" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,14,0,0">
+                                                <TextBlock Text="Replay length override (seconds)" FontWeight="SemiBold"/>
+                                                <TextBox Text="{Binding ReplayBufferSeconds, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}" PreviewTextInput="WholeNumber_PreviewTextInput" DataObject.Pasting="WholeNumber_Pasting" TextChanged="GameOverrideChanged" Margin="0,6,0,0" ToolTip="15–600. Blank inherits."/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="4" Grid.Column="0" Margin="0,14,14,0">
+                                                <TextBlock Text="Overlay preset override" FontWeight="SemiBold"/>
+                                                <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=OverlayPresetOptions}"
+                                                          DisplayMemberPath="Name" SelectedValuePath="Value" SelectedValue="{Binding OverlayPreset, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                                          SelectionChanged="GameOverrideChanged" Margin="0,6,0,0"/>
+                                                <TextBlock Text="Inherit keeps global visibility settings. Monitor options apply when opened for this game." Style="{StaticResource Hint}" FontSize="12" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,14,0,0">
+                                                <TextBlock Text="Effective settings preview" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="EffectiveOptionsSummary" Text="Select a game to preview resolved values." TextWrapping="Wrap" Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="5" Grid.ColumnSpan="2" Margin="0,14,0,0">
+                                                <TextBlock Text="Game file" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding ExecutablePath}" ToolTip="{Binding ExecutablePath}" ToolTipService.ShowDuration="15000"
+                                                           TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0"/>
+                                                <TextBlock Text="Edit the path in the Game file column above." Style="{StaticResource Hint}" FontSize="12" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Margin="0,14,0,0">
+                                                <TextBlock Text="Exact executable aliases" FontWeight="SemiBold"/>
+                                                <TextBlock Text="Aliases add explicit full .exe paths. They do not change this game's canonical identity or use name guessing." Style="{StaticResource Hint}" FontSize="12" Margin="0,4,0,6"/>
+                                                <ListBox x:Name="ExecutableAliasesList" ItemsSource="{Binding ExecutableAliases}" Height="70" Background="#111A21" Foreground="{StaticResource TextBrush}" BorderBrush="#2B3841"/>
+                                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                    <Button Content="Add alias…" Click="AddExecutableAlias_Click"/>
+                                                    <Button Content="Remove selected" Click="RemoveExecutableAlias_Click"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </Expander>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Why isn't this game detected?" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Read-only check using one process snapshot. It does not start OBS or run automation." Style="{StaticResource Hint}" Margin="0,5,0,10" TextWrapping="Wrap"/>
+                                <WrapPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Settings:" VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                    <ComboBox x:Name="DetectionSettingsSource" SelectionChanged="DetectionSettingsSource_SelectionChanged" Width="210" SelectedIndex="0" Margin="0,0,8,0">
+                                        <ComboBoxItem Content="Current draft settings (recommended)"/>
+                                        <ComboBoxItem Content="Saved active settings"/>
+                                    </ComboBox>
+                                    <Button Content="Check detection" Click="RefreshDetectionDiagnostics_Click"/>
+                                </WrapPanel>
+                                <TextBlock x:Name="DetectionDiagnosticsText" Text="Select a game, then choose Check detection." TextWrapping="Wrap" Margin="0,10,0,0"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Steam games" FontSize="16" FontWeight="SemiBold"/>
-                                <TextBlock Text="The Power page can apply to all Steam games. Recording and colours only use games in the list above." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
+                                <TextBlock Text="The Power page can apply to all Steam games. Capture and colours only use games in the list above." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -134,9 +404,9 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
-                                <TextBlock Text="Record with OBS" FontSize="17" FontWeight="SemiBold"/>
-                                <TextBlock Text="Open OBS for games marked Record, and close it after you stop playing." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
-                                <CheckBox Content="Record selected games" IsChecked="{Binding RecordingEnabled}"/>
+                                <TextBlock Text="Capture with OBS" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="Start OBS for games with Capture enabled. Each game chooses recording, replay buffer, or both; OBS closes after play ends." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
+                                <CheckBox Content="Capture selected games" IsChecked="{Binding RecordingEnabled}"/>
                                 <TextBlock Text="OBS program" Margin="0,14,0,6" FontWeight="SemiBold"/>
                                 <DockPanel><Button DockPanel.Dock="Right" Content="Browse" Click="BrowseObs_Click" Margin="8,0,0,0"/><TextBox Text="{Binding ObsExecutablePath, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
                                 <TextBlock Text="OBS settings folder" Margin="0,14,0,6" FontWeight="SemiBold"/>
@@ -146,13 +416,119 @@
                                 <DockPanel><Button DockPanel.Dock="Right" Content="Browse" Click="BrowseRecordingFolder_Click" Margin="8,0,0,0"/><TextBox Text="{Binding RecordingDirectory, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                                     <TextBlock Text="Wait before stopping (seconds)" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                                    <TextBox x:Name="StopDelayBox" Width="56" Text="{Binding RecordingStopDelaySeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox x:Name="StopDelayBox" Width="56" Text="{Binding RecordingStopDelaySeconds, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="0–120 seconds."/>
+                                </StackPanel>
+                                <TextBlock Text="0–120 seconds. This is the extra wait before recording stops after a game closes." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <TextBlock Text="Replay buffer maximum (seconds)" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                    <TextBox x:Name="ReplayBufferSecondsBox" Width="64" Text="{Binding ReplayBufferSeconds, UpdateSourceTrigger=PropertyChanged}" MaxLength="3"
+                                             PreviewTextInput="WholeNumber_PreviewTextInput" DataObject.Pasting="WholeNumber_Pasting"/>
+                                </StackPanel>
+                                <TextBlock Text="15–600 seconds. OBS treats this as a maximum; keyframes and memory limits may produce shorter clips." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <TextBlock Text="Save clip hotkey" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                    <TextBox x:Name="SaveClipHotkeyBox" Width="150" Text="{Binding SaveClipHotkey, UpdateSourceTrigger=PropertyChanged}" ToolTip="Example: Ctrl+Alt+F10 (leave blank to disable)"/>
+                                    <Button Content="Apply hotkey" Click="ApplySaveClipHotkey_Click" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <TextBlock Text="Global hotkey saves the current OBS replay buffer. Saving requires an explicit WebSocket connection below." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Live OBS capture status" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Connect explicitly to OBS on this PC to control recording or replay buffers and save clips. Managed replay launch works without this connection; saving through Meh Tools requires it." Style="{StaticResource Hint}" Margin="0,5,0,12"/>
+                                <WrapPanel VerticalAlignment="Center">
+                                    <TextBlock Text="WebSocket port" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBox Width="76" Text="{Binding ObsWebSocketPort, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBlock Text="Password" VerticalAlignment="Center" Margin="14,0,8,0"/>
+                                    <PasswordBox x:Name="ObsWebSocketPasswordBox" Width="170"/>
+                                    <Button x:Name="ObsConnectButton" Content="Connect" Click="ObsConnect_Click" Margin="10,0,0,0"/>
+                                    <Button x:Name="ObsDisconnectButton" Content="Disconnect" Click="ObsDisconnect_Click" IsEnabled="False"/>
+                                </WrapPanel>
+                                <TextBlock x:Name="ObsConnectionStatus" Text="Not connected" FontWeight="SemiBold" Margin="0,12,0,3"/>
+                                <TextBlock Text="Actual output state" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="ObsOutputState" Text="Unknown" FontSize="19" FontWeight="SemiBold" Margin="0,2,0,9"/>
+                                <TextBlock Text="Replay buffer" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="ObsReplayState" Text="Unknown" FontSize="16" FontWeight="SemiBold" Margin="0,2,0,9"/>
+                                <WrapPanel>
+                                    <TextBlock Text="Duration: " Foreground="{StaticResource MutedBrush}"/>
+                                    <TextBlock x:Name="ObsDuration" Text="—" Margin="0,0,22,0"/>
+                                    <TextBlock Text="Data written: " Foreground="{StaticResource MutedBrush}"/>
+                                    <TextBlock x:Name="ObsDataWritten" Text="—"/>
+                                </WrapPanel>
+                                <TextBlock Text="Last saved recording" Foreground="{StaticResource MutedBrush}" Margin="0,10,0,2"/>
+                                <DockPanel>
+                                    <Button x:Name="ObsOpenLastButton" DockPanel.Dock="Right" Content="Open file" Click="ObsOpenLast_Click" IsEnabled="False"/>
+                                    <TextBlock x:Name="ObsLastRecording" Text="None reported" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                </DockPanel>
+                                <TextBlock Text="Last saved clip" Foreground="{StaticResource MutedBrush}" Margin="0,10,0,2"/>
+                                <DockPanel>
+                                    <Button x:Name="ObsOpenLastClipButton" DockPanel.Dock="Right" Content="Open file" Click="ObsOpenLastClip_Click" IsEnabled="False"/>
+                                    <TextBlock x:Name="ObsLastClip" Text="None reported" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                </DockPanel>
+                                <WrapPanel Margin="0,12,0,0">
+                                    <Button x:Name="ObsStartButton" Content="Start" Click="ObsStart_Click" IsEnabled="False"/>
+                                    <Button x:Name="ObsStopButton" Content="Stop" Click="ObsStop_Click" IsEnabled="False"/>
+                                    <Button x:Name="ObsPauseButton" Content="Pause" Click="ObsPause_Click" IsEnabled="False"/>
+                                    <Button x:Name="ObsResumeButton" Content="Resume" Click="ObsResume_Click" IsEnabled="False"/>
+                                </WrapPanel>
+                                <WrapPanel Margin="0,4,0,0">
+                                    <Button x:Name="ObsStartReplayButton" Content="Start replay buffer" Click="ObsStartReplay_Click" IsEnabled="False"/>
+                                    <Button x:Name="ObsStopReplayButton" Content="Stop replay buffer" Click="ObsStopReplay_Click" IsEnabled="False"/>
+                                    <Button x:Name="ObsSaveClipButton" Content="Save clip" Click="ObsSaveClip_Click" IsEnabled="False"/>
+                                </WrapPanel>
+                                <TextBlock Text="Active states confirm OBS outputs, but do not verify the captured picture or sound." Style="{StaticResource Hint}" Margin="0,9,0,0"/>
+                                <TextBlock x:Name="ObsRemoteError" TextWrapping="Wrap" Foreground="#D98272" Margin="0,7,0,0" Visibility="Collapsed"/>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Before capture" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Close OBS before a game starts so Meh Tools can update the game target, save folder, and replay-buffer settings. Audio and other OBS settings stay the same." Style="{StaticResource Hint}" Margin="0,7,0,12"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Open OBS" Click="OpenObs_Click"/>
+                                    <Button Content="Check OBS setup" Click="TestObs_Click" ToolTip="Check the OBS program, settings folder, and video folder without starting a game."/>
                                 </StackPanel>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
-                                <TextBlock Text="Before recording" FontSize="16" FontWeight="SemiBold"/>
-                                <TextBlock Text="Close OBS before a game starts so Meh Tools can update the game and save folder. Your audio and other OBS settings stay the same." Style="{StaticResource Hint}" Margin="0,7,0,12"/>
-                                <Button Content="Open OBS" HorizontalAlignment="Left" Click="OpenObs_Click"/>
+                                <TextBlock Text="Recording storage" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Configured folders apply to OBS launched by Meh Tools. An OBS instance already running elsewhere can use a different output folder." Style="{StaticResource Hint}" Margin="0,5,0,10" TextWrapping="Wrap"/>
+                                <ComboBox x:Name="RecordingStorageTarget" DisplayMemberPath="Label" SelectionChanged="RecordingStorageTarget_SelectionChanged" Margin="0,0,0,8"/>
+                                <TextBlock Text="Effective configured base" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="StorageBasePath" Text="—" TextWrapping="Wrap" Margin="0,2,0,8"/>
+                                <TextBlock Text="Planned folder for a new capture" Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock x:Name="StoragePlannedPath" Text="—" TextWrapping="Wrap" Margin="0,2,0,8"/>
+                                <WrapPanel VerticalAlignment="Center">
+                                    <TextBlock x:Name="StorageCapacityText" TextWrapping="Wrap" MaxWidth="600" Text="Space: unknown" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <Button Content="Refresh" Click="RefreshStorageVisibility_Click"/>
+                                </WrapPanel>
+                                <CheckBox Content="Warn when free space is below" IsChecked="{Binding LowStorageWarningsEnabled}" Margin="0,12,0,5"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBox Width="76" Text="{Binding LowStorageThresholdGiB, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBlock Text="GiB (default 10)" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <CheckBox x:Name="OrganiseCapturesBox" Content="Organise new managed captures by game and date" IsChecked="{Binding OrganiseCapturesByGameAndDate}" Checked="OrganiseCapturesBox_Changed" Unchecked="OrganiseCapturesBox_Changed" Margin="0,12,0,0"/>
+                                <TextBlock Text="When enabled: base / safe game name / yyyy-MM-dd (local date). Existing recordings are never moved." Style="{StaticResource Hint}" Margin="0,5,0,0" TextWrapping="Wrap"/>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Cleanup suggestions" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Preview only. Suggestions can become stale; refresh rechecks session references and file metadata. Nothing is removed." Style="{StaticResource Hint}" Margin="0,5,0,10" TextWrapping="Wrap"/>
+                                <WrapPanel VerticalAlignment="Center" Margin="0,0,0,8">
+                                    <TextBlock Text="Suggest recordings older than (days)" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBox Width="76" Text="{Binding CleanupSuggestionAgeDays, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBlock Text="Storage budget (GiB)" VerticalAlignment="Center" Margin="14,0,8,0"/>
+                                    <TextBox Width="76" Text="{Binding CleanupSuggestionBudgetGiB, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Button Content="Refresh preview" Click="RefreshCleanupPreview_Click" Margin="10,0,0,0"/>
+                                    <Button Content="Export text" Click="ExportCleanupPreview_Click" Margin="6,0,0,0"/>
+                                    <Button Content="Open folder" Click="OpenCleanupFolder_Click" Margin="6,0,0,0"/>
+                                </WrapPanel>
+                                <TextBlock x:Name="CleanupPreviewSummary" TextWrapping="Wrap" Text="No preview yet." Margin="0,0,0,8"/>
+                                <DataGrid x:Name="CleanupPreviewGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" MinHeight="120" MaxHeight="280">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="110"/>
+                                        <DataGridTextColumn Header="Age (days)" Binding="{Binding AgeDays}" Width="90"/>
+                                        <DataGridTextColumn Header="Size" Binding="{Binding SizeLabel}" Width="100"/>
+                                        <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="220"/>
+                                        <DataGridTextColumn Header="File" Binding="{Binding Path}" Width="*"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -172,6 +548,16 @@
                                     <TextBlock Text="WHEN IN A GAME" FontWeight="Bold" Foreground="{StaticResource MutedBrush}" FontSize="10"/>
                                     <TextBlock Grid.Column="1" Text="{Binding GameVibrance, StringFormat={}{0}%}" FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Right"/></Grid>
                                 <Slider Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding GameVibrance}" Margin="0,6,0,6"/>
+                                <CheckBox Content="Pause colours when HDR is on" IsChecked="{Binding DisableVibranceWhenHdr}" Margin="0,8,0,0"/>
+                                <TextBlock Text="Change these colours on" FontWeight="SemiBold" Margin="0,14,0,5"/>
+                                <ComboBox x:Name="VibranceTargetBox" ItemsSource="{Binding VibranceTargetOptions}" DisplayMemberPath="Name" SelectedValuePath="Value" SelectedValue="{Binding VibranceTargetMode, UpdateSourceTrigger=PropertyChanged}"/>
+                                <TextBlock Text="All displays keeps the existing behavior. Selected display changes only the chosen monitor. Game window display follows a matched game's visible window as it moves." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,5,0,8"/>
+                                <WrapPanel VerticalAlignment="Center">
+                                    <ComboBox x:Name="VibranceDisplayBox" Width="300" ItemsSource="{Binding VibranceDisplayOptions}" DisplayMemberPath="Name" SelectedValuePath="DeviceName" SelectedValue="{Binding VibranceSelectedDisplay, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Button Content="Refresh displays" Click="RefreshVibranceDisplays_Click" Margin="8,0,0,0"/>
+                                </WrapPanel>
+                                <CheckBox Content="Apply game colours only while the game is focused" IsChecked="{Binding VibranceOnlyWhenFocused}" Margin="0,10,0,0"/>
+                                <TextBlock Text="Changes are noticed on the configured automation check interval (2–30 seconds). Display discovery and refresh only read current settings." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,5,0,0"/>
                                 <TextBlock Text="Needs an NVIDIA graphics card. Some screens may not support this." Style="{StaticResource Hint}" Margin="0,12,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
@@ -184,12 +570,20 @@
                                 <TextBlock Text="Power plans" FontSize="17" FontWeight="SemiBold"/>
                                 <TextBlock Text="Use one Windows power plan normally, and another while playing." Style="{StaticResource Hint}" Margin="0,5,0,13"/>
                                 <CheckBox Content="Switch power plans when playing" IsChecked="{Binding PowerEnabled}"/>
-                                <CheckBox Content="Use the gaming plan for all Steam games" IsChecked="{Binding PowerForAllSteamGames}"/>
+                                <CheckBox Content="Use the gaming plan for detected Steam games" IsChecked="{Binding PowerForAllSteamGames}"/>
+                                <TextBlock Text="Also detect games from other launchers (opt-in, local manifests/install folders)" FontWeight="SemiBold" Margin="0,12,0,4"/>
+                                <WrapPanel>
+                                    <CheckBox Content="Epic" IsChecked="{Binding DetectEpicGames}" Margin="0,4,12,4"/>
+                                    <CheckBox Content="GOG" IsChecked="{Binding DetectGogGames}" Margin="0,4,12,4"/>
+                                    <CheckBox Content="EA app" IsChecked="{Binding DetectEaGames}" Margin="0,4,12,4"/>
+                                    <CheckBox Content="Ubisoft" IsChecked="{Binding DetectUbisoftGames}" Margin="0,4,12,4"/>
+                                    <CheckBox Content="Xbox (PC)" IsChecked="{Binding DetectXboxGames}" Margin="0,4,12,4"/>
+                                </WrapPanel>
                                 <TextBlock Text="Normal plan" Margin="0,17,0,6" FontWeight="SemiBold"/>
                                 <ComboBox x:Name="DesktopPlanBox" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding DesktopPowerPlan}"/>
                                 <TextBlock Text="Gaming plan" Margin="0,15,0,6" FontWeight="SemiBold"/>
                                 <ComboBox x:Name="GamingPlanBox" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding GamingPowerPlan}"/>
-                                <TextBlock Text="If &quot;all Steam games&quot; is off, only games in your list will switch to the gaming plan." Style="{StaticResource Hint}" Margin="0,15,0,0"/>
+                                <TextBlock Text="Detected-library power applies when Steam or other selected launchers are enabled. Only games in your list (or running detected-library games, when enabled) switch to the gaming plan." Style="{StaticResource Hint}" Margin="0,15,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -199,35 +593,89 @@
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Live numbers" FontSize="17" FontWeight="SemiBold"/>
-                                <TextBlock Text="Show a small window with CPU, GPU, and game frame numbers. To see FPS, choose a game and a PresentMon program." Style="{StaticResource Hint}" Margin="0,6,0,12"/>
+                                <TextBlock Text="Show a small window with CPU, GPU, and game frame numbers. Meh Tools uses a bundled PresentMon capture tool for FPS when available; you can choose a custom copy if needed." Style="{StaticResource Hint}" Margin="0,6,0,12"/>
                                 <TextBlock Text="Game (for FPS)" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                                <ComboBox x:Name="OverlayGame" ItemsSource="{Binding Games}" DisplayMemberPath="Name" SelectedIndex="0"/>
-                                <TextBlock Text="PresentMon program (optional)" FontWeight="SemiBold" Margin="0,12,0,6"/>
-                                <DockPanel><Button Content="Clear" DockPanel.Dock="Right" Click="ClearPresentMon_Click"/><Button Content="Browse…" DockPanel.Dock="Right" Click="BrowsePresentMon_Click"/><TextBox x:Name="PresentMonPath" IsReadOnly="True"/></DockPanel>
+                                <ComboBox x:Name="OverlayGame" ItemsSource="{Binding Games}" DisplayMemberPath="Name" SelectedIndex="0"
+                                          ToolTip="Choose the running game for FPS and frame delay. CPU and GPU readings work without a game."/>
+                                <TextBlock Text="PresentMon program (optional override)" FontWeight="SemiBold" Margin="0,12,0,6"/>
+                                <DockPanel><Button Content="Clear" DockPanel.Dock="Right" Click="ClearPresentMon_Click"/><Button Content="Browse…" DockPanel.Dock="Right" Click="BrowsePresentMon_Click"/><TextBox x:Name="PresentMonPath" Text="{Binding PresentMonPath, UpdateSourceTrigger=PropertyChanged}"
+                                          ToolTip="Leave blank to use the bundled PresentMon. If the path is missing, CPU/GPU readings still open and the monitor explains the missing frame data."/></DockPanel>
+                                <TextBlock Text="Leave blank to use the bundled copy. FPS and frame delay need a selected running game and a working PresentMon." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                <WrapPanel Margin="0,12,0,0">
+                                    <CheckBox Content="CPU" IsChecked="{Binding OverlayShowCpu}" Margin="0,4,12,4"/>
+                                    <CheckBox Content="GPU" IsChecked="{Binding OverlayShowGpu}" Margin="0,4,12,4"/>
+                                    <CheckBox Content="FPS" IsChecked="{Binding OverlayShowFps}" Margin="0,4,12,4"/>
+                                    <CheckBox Content="Frame delay" IsChecked="{Binding OverlayShowLatency}" Margin="0,4,12,4"/>
+                                    <CheckBox Content="Click-through" IsChecked="{Binding OverlayClickThrough}" Margin="0,4,12,4"/>
+                                </WrapPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <TextBlock Text="Presets:" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource MutedBrush}"/>
+                                    <Button Content="Minimal" Click="OverlayPresetMinimal_Click" Padding="8,4" Margin="0,0,6,0"/>
+                                    <Button Content="FPS + frametime" Click="OverlayPresetFps_Click" Padding="8,4" Margin="0,0,6,0"/>
+                                    <Button Content="Full" Click="OverlayPresetFull_Click" Padding="8,4" Margin="0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <TextBlock Text="Opacity" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <Slider Width="160" Minimum="0.3" Maximum="1.0" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding OverlayOpacity}"/>
+                                    <TextBlock Text="{Binding OverlayOpacity, StringFormat={}{0:P0}}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                    <TextBlock Text="Global hotkey" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBox x:Name="OverlayHotkeyBox" Width="140" Text="{Binding OverlayHotkey, UpdateSourceTrigger=PropertyChanged}" ToolTip="Example: Ctrl+Alt+O (leave blank to disable)"/>
+                                    <Button Content="Apply hotkey" Click="ApplyOverlayHotkey_Click" Margin="8,0,0,0"/>
+                                </StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
                                     <Button x:Name="OverlayButton" Content="Show monitor" Style="{StaticResource AccentButton}" Click="ToggleOverlay_Click"/>
                                 </StackPanel>
-                                <TextBlock x:Name="OverlayStatus" Text="CPU and NVIDIA GPU numbers work without PresentMon." Style="{StaticResource Hint}" Margin="0,8,0,0"/>
+                                <TextBlock x:Name="OverlayStatus" Text="CPU and NVIDIA GPU readings work without PresentMon. FPS and frame delay need a selected running game and a PresentMon copy; if capture fails, CPU/GPU still open. Reopen the monitor after changing options." Style="{StaticResource Hint}" Margin="0,8,0,0"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Make a performance report" FontSize="17" FontWeight="SemiBold"/>
                                 <TextBlock Text="Start logging, play until the problem happens, then stop and save. You can share the report with ChatGPT, Claude, or Gemini for help." Style="{StaticResource Hint}" Margin="0,6,0,15"/>
                                 <TextBlock Text="Game (optional)" FontWeight="SemiBold" Margin="0,0,0,6"/>
                                 <ComboBox x:Name="PerformanceGame" ItemsSource="{Binding Games}" DisplayMemberPath="Name" SelectedIndex="0"/>
-                                <TextBlock Text="What went wrong? (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
-                                <TextBox x:Name="PerformanceNotes" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto"/>
-                                <TextBlock Text="Example: low FPS in fights, or stuttering after 10 minutes." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                <TextBlock Text="PresentMon program for FPS/frame times (optional override; bundled copy used if available)" FontWeight="SemiBold" Margin="0,12,0,6"/>
+                                <DockPanel><Button Content="Clear" DockPanel.Dock="Right" Click="ClearReportPresentMon_Click"/><Button Content="Browse…" DockPanel.Dock="Right" Click="BrowseReportPresentMon_Click"/><TextBox x:Name="ReportPresentMonPath" Text="{Binding PresentMonPath, UpdateSourceTrigger=PropertyChanged}"/></DockPanel>
+                                <TextBlock Text="Game settings and test scene (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
+                                <TextBox x:Name="PerformanceSetup" AcceptsReturn="True" TextWrapping="Wrap" Height="86" MaxLength="4000" VerticalScrollBarVisibility="Auto"/>
+                                <TextBlock Text="Include resolution/render scale, graphics preset/ray tracing, upscaling/frame generation, refresh rate, VSync/FPS cap, game version and map/scene. Mention OBS or other heavy apps running." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                <TextBlock Text="What went wrong, and what performance did you want? (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
+                                <TextBox x:Name="PerformanceNotes" AcceptsReturn="True" TextWrapping="Wrap" Height="72" MaxLength="4000" VerticalScrollBarVisibility="Auto"/>
+                                <TextBlock Text="Example: aiming for 144 FPS; stutters after 10 minutes in fights. Add markers when it happens, and label loading screens or alt-tab so they can be distinguished from gameplay." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                                     <Button x:Name="StartPerformanceButton" Content="Start log" Style="{StaticResource AccentButton}" Click="StartPerformance_Click"/>
                                     <Button x:Name="StopPerformanceButton" Content="Stop and save" IsEnabled="False" Click="StopPerformance_Click"/>
                                     <Button x:Name="SavePerformanceButton" Content="Save again" IsEnabled="False" Click="SavePerformance_Click"/>
+                                    <Button x:Name="ComparePerformanceButton" Content="Compare…" Click="ComparePerformance_Click"/>
                                 </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBox x:Name="MarkerNoteBox" Width="260" ToolTip="Marker note"/>
+                                    <Button x:Name="AddMarkerButton" Content="Add marker" IsEnabled="False" Click="AddMarker_Click"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBlock Text="Global stutter marker hotkey" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBox x:Name="StutterMarkerHotkeyBox" Width="145" Text="{Binding StutterMarkerHotkey, UpdateSourceTrigger=PropertyChanged}" ToolTip="Default Ctrl+Alt+F9; blank disables"/>
+                                    <Button Content="Apply hotkey" Click="ApplyStutterMarkerHotkey_Click" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button x:Name="ViewPerformanceReportButton" Content="View report timeline" IsEnabled="False" Click="ViewPerformanceReport_Click"/>
+                                    <Button Content="Open saved report…" Click="OpenPerformanceReport_Click"/>
+                                </WrapPanel>
+                                <TextBlock Text="Baseline / controlled retest" FontSize="15" FontWeight="SemiBold" Margin="0,16,0,5"/>
+                                <WrapPanel>
+                                    <TextBox x:Name="BaselineReportPathBox" Width="340" IsReadOnly="True" ToolTip="Selected baseline report"/>
+                                    <Button Content="Choose baseline…" Click="ChooseBaselineReport_Click"/>
+                                    <Button Content="Clear baseline" Click="ClearBaselineReport_Click"/>
+                                    <Button x:Name="CompareCurrentBaselineButton" Content="Compare current report" IsEnabled="False" Click="CompareCurrentBaseline_Click"/>
+                                </WrapPanel>
+                                <TextBlock Text="For a retest, enter the game settings/test scene above and the single changed setting here. Keep the workload comparable." Style="{StaticResource Hint}" Margin="0,5,0,0"/>
+                                <TextBox x:Name="RetestChangeBox" MaxLength="500" ToolTip="Example: Changed shadow quality from High to Medium"/>
                                 <TextBlock x:Name="PerformanceStatus" Text="Ready to start." FontWeight="SemiBold" Margin="0,14,0,0" TextWrapping="Wrap"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="What's in the report" FontSize="16" FontWeight="SemiBold"/>
                                 <TextBlock Text="It includes PC details, performance samples, and your notes. The file stays on your PC until you share it." Style="{StaticResource Hint}" Margin="0,7,0,0"/>
-                                <TextBlock Text="The report does not measure FPS or frame times, so it may not show the exact cause. Use it as a starting point." Style="{StaticResource Hint}" Margin="0,10,0,0"/>
+                                <TextBlock Text="Includes a timestamped timeline, logical CPU load, private memory allocation, paging and disk activity. With PresentMon and a selected game, it adds frame-time percentiles, slow-frame counts and the worst frames. Markers help connect the readings to what you saw." Style="{StaticResource Hint}" Margin="0,10,0,0"/>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>
@@ -240,7 +688,34 @@
                                 <CheckBox Content="Start with Windows" IsChecked="{Binding StartWithWindows}" Margin="0,16,0,4"/>
                                 <CheckBox Content="Keep running in the tray when I close the window" IsChecked="{Binding MinimizeToTray}"/>
                                 <CheckBox Content="Minimize to the tray instead of the taskbar" IsChecked="{Binding TrayOnMinimize}"/>
-                                <StackPanel Orientation="Horizontal" Margin="0,15,0,0"><TextBlock Text="Check for games every" VerticalAlignment="Center" Margin="0,0,10,0"/><TextBox x:Name="PollSecondsBox" Width="50" Text="{Binding PollSeconds, UpdateSourceTrigger=PropertyChanged}"/><TextBlock Text="seconds" VerticalAlignment="Center" Margin="8,0,0,0"/></StackPanel>
+                                <CheckBox Content="Show tray notifications" IsChecked="{Binding ShowNotifications}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,15,0,0"><TextBlock Text="Check for games every" VerticalAlignment="Center" Margin="0,0,10,0"/><TextBox x:Name="PollSecondsBox" Width="50" Text="{Binding PollSeconds, UpdateSourceTrigger=PropertyChanged}" ToolTip="2–30 seconds."/><TextBlock Text="seconds" VerticalAlignment="Center" Margin="8,0,0,0"/></StackPanel>
+                                <TextBlock Text="2–30 seconds. Shorter checks find games sooner; longer checks use less CPU." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Test setup" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="Run quick checks without starting a game. Some tests briefly change and restore settings." Style="{StaticResource Hint}" Margin="0,7,0,12"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Test OBS setup" Click="TestObs_Click"/>
+                                    <Button Content="Test colours" Click="TestVibrance_Click"/>
+                                    <Button Content="Test power plan" Click="TestPower_Click"/>
+                                </StackPanel>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="When a game starts" FontSize="17" FontWeight="SemiBold"/>
+                                <TextBlock Text="Close selected apps to free up memory before playing. Enter one app name or executable per line (for example, ChatGPT or t3-code.exe)." Style="{StaticResource Hint}" Margin="0,7,0,12"/>
+                                <CheckBox Content="Close these apps when a game is launched" IsChecked="{Binding CloseAppsOnGameLaunch}"/>
+                                <TextBox x:Name="AppsToCloseBox" AcceptsReturn="True" TextWrapping="Wrap" Height="90" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0"/>
+                                <TextBlock Text="Apps are asked to close when a game is first detected; some may prompt to save unsaved work." Style="{StaticResource Hint}" Margin="0,8,0,0"/>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Actions &amp; backup" FontSize="17" FontWeight="SemiBold"/>
+                                <CheckBox Content="Show recording folder in notification/status when a recording stops" IsChecked="{Binding OpenRecordingsAfterStop}" Margin="0,12,0,4"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button Content="Export settings…" Click="ExportSettings_Click"/>
+                                    <Button Content="Import settings…" Click="ImportSettings_Click"/>
+                                </StackPanel>
+                                <TextBlock Text="Import replaces current settings (paths are machine-specific). Review after importing." Style="{StaticResource Hint}" Margin="0,8,0,0"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Privacy" FontSize="17" FontWeight="SemiBold"/>
@@ -249,9 +724,46 @@
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
+                <TabItem Header="Sessions">
+                    <Grid Margin="0,0,8,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="3*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <TextBox x:Name="SessionsSearch" Grid.ColumnSpan="2" Margin="0,0,0,12" ToolTip="Search game, date, or notes" TextChanged="SessionsSearch_TextChanged"/>
+                        <ListBox x:Name="SessionsList" Grid.Row="1" Margin="0,0,14,0" SelectionChanged="SessionsList_SelectionChanged">
+                            <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="3,5"><TextBlock Text="{Binding GameName}" FontWeight="SemiBold"/><TextBlock Text="{Binding Summary}" Style="{StaticResource Hint}" Margin="0,3,0,0"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
+                        </ListBox>
+                        <ScrollViewer Grid.Column="1" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <Border Style="{StaticResource Card}"><StackPanel>
+                                    <TextBlock x:Name="SessionDetailGame" Text="Select a session" FontSize="19" FontWeight="SemiBold"/>
+                                    <TextBlock x:Name="SessionDetailWhen" Style="{StaticResource Hint}" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="SessionDetailDuration" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="SessionDetailStatus" Style="{StaticResource Hint}" Margin="0,3,0,12"/>
+                                    <CheckBox x:Name="SessionFavourite" Content="Favourite"/>
+                                    <TextBlock Text="Notes" FontWeight="SemiBold" Margin="0,12,0,5"/>
+                                    <TextBox x:Name="SessionNotes" AcceptsReturn="True" TextWrapping="Wrap" Height="86" MaxLength="4000" VerticalScrollBarVisibility="Auto"/>
+                                    <Button Content="Save notes and favourite" Click="SaveSessionDetails_Click" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+                                </StackPanel></Border>
+                                <Border Style="{StaticResource Card}"><StackPanel>
+                                    <TextBlock Text="Files" FontSize="16" FontWeight="SemiBold"/>
+                                    <ListBox x:Name="SessionAttachments" Height="145" Margin="0,8,0,8" DisplayMemberPath="Label" SelectionChanged="SessionAttachments_SelectionChanged"/>
+                                    <WrapPanel>
+                                        <ComboBox x:Name="SessionAttachmentKindBox" Width="155" Margin="4"/>
+                                        <Button Content="Attach file…" Click="AttachSessionFile_Click"/>
+                                        <Button x:Name="OpenSessionFileButton" Content="Open selected file" Click="OpenSessionFile_Click" IsEnabled="False"/>
+                                        <Button x:Name="ShowSessionFileButton" Content="Show in folder" Click="ShowSessionFile_Click" IsEnabled="False"/>
+                                        <Button x:Name="ViewSessionReportButton" Content="View report" Click="ViewSessionReport_Click" IsEnabled="False"/>
+                                        <Button x:Name="CompareSessionButton" Content="Compare with previous" Click="CompareSession_Click" IsEnabled="False"/>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="SessionsStatus" Text="Sessions are stored locally. Duration is detected session time." Style="{StaticResource Hint}" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                                </StackPanel></Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </TabItem>
             </TabControl>
             <Border Grid.Row="2" BorderBrush="#2D3C46" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,14,0,0">
-                <TextBlock x:Name="StatusNotice" Text="Click Save to keep your changes." Style="{StaticResource Hint}" FontSize="12"/>
+                <TextBlock x:Name="StatusNotice" Text="Click Save (Ctrl+S) to keep your changes." Style="{StaticResource Hint}" FontSize="12"/>
             </Border>
         </Grid>
     </Grid>

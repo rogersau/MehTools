@@ -10,12 +10,18 @@
                 <Button Content="×" DockPanel.Dock="Right" Click="Close_Click" Padding="4,0" Margin="0" ToolTip="Close monitor"/>
                 <TextBlock Text="LIVE STATS  ·  drag to move" Foreground="#8AE1C3" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center"/>
             </DockPanel>
-            <UniformGrid Columns="2" Margin="0,12,0,0">
-                <TextBlock Text="FPS" Foreground="#A4B3B9"/><TextBlock x:Name="FpsValue" Text="—" TextAlignment="Right" FontWeight="SemiBold"/>
-                <TextBlock Text="GPU" Foreground="#A4B3B9" Margin="0,5,0,0"/><TextBlock x:Name="GpuValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold"/>
-                <TextBlock Text="CPU" Foreground="#A4B3B9" Margin="0,5,0,0"/><TextBlock x:Name="CpuValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold"/>
-                <TextBlock Text="Frame delay" Foreground="#A4B3B9" Margin="0,5,0,0"/><TextBlock x:Name="LatencyValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold"/>
-            </UniformGrid>
+            <Grid x:Name="MetricsGrid" Margin="0,12,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <TextBlock x:Name="FpsLabel" Text="FPS" Foreground="#A4B3B9" Grid.Row="0" Grid.Column="0"/>
+                <TextBlock x:Name="FpsValue" Text="—" TextAlignment="Right" FontWeight="SemiBold" Grid.Row="0" Grid.Column="1"/>
+                <TextBlock x:Name="GpuLabel" Text="GPU" Foreground="#A4B3B9" Margin="0,5,0,0" Grid.Row="1" Grid.Column="0"/>
+                <TextBlock x:Name="GpuValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold" Grid.Row="1" Grid.Column="1"/>
+                <TextBlock x:Name="CpuLabel" Text="CPU" Foreground="#A4B3B9" Margin="0,5,0,0" Grid.Row="2" Grid.Column="0"/>
+                <TextBlock x:Name="CpuValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold" Grid.Row="2" Grid.Column="1"/>
+                <TextBlock x:Name="LatencyLabel" Text="Frame delay" Foreground="#A4B3B9" Margin="0,5,0,0" Grid.Row="3" Grid.Column="0"/>
+                <TextBlock x:Name="LatencyValue" Text="—" TextAlignment="Right" Margin="0,5,0,0" FontWeight="SemiBold" Grid.Row="3" Grid.Column="1"/>
+            </Grid>
             <TextBlock x:Name="FrameStatus" Text="" Foreground="#A4B3B9" FontSize="10" TextWrapping="Wrap" Margin="0,10,0,0"/>
         </StackPanel>
     </Border>

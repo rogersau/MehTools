@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
+using JamesTools.Core.Configuration;
 
 namespace JamesTools.Core.Recording;
 
@@ -74,7 +75,9 @@ public sealed class ObsRecorder : IDisposable
                 var gamePath = FullPath(gameExePath, "game executable");
                 var gameStart = GetProcessIdentity(gamePid, gamePath);
 
-                var preparation = ObsConfiguration.Prepare(configRoot, recordingDirectory, gamePid, gamePath, ObsWindows.FindVisibleWindow);
+                if (!Enum.IsDefined(settings.CaptureMode)) return Failed("Choose recording, replay, or both for capture mode.");
+                var preparation = ObsConfiguration.Prepare(configRoot, recordingDirectory, gamePid, gamePath,
+                    ObsWindows.FindVisibleWindow, settings.CaptureMode, settings.ReplayBufferSeconds);
                 if (preparation.WaitingForWindow)
                     return new RecorderStartResult(RecorderStartStatus.WaitingForWindow, preparation.Message);
                 transaction = preparation.Transaction ?? throw new InvalidDataException("OBS configuration could not be prepared.");
@@ -95,7 +98,7 @@ public sealed class ObsRecorder : IDisposable
                 };
                 if (settings.Portable) startInfo.ArgumentList.Add("--portable");
                 startInfo.ArgumentList.Add("--disable-updater");
-                startInfo.ArgumentList.Add("--startrecording");
+                foreach (var argument in BuildCaptureArguments(settings.CaptureMode)) startInfo.ArgumentList.Add(argument);
                 launched = Process.Start(startInfo) ?? throw new InvalidOperationException("Windows did not start OBS.");
                 int pid = launched.Id;
                 var started = GetProcessIdentity(launched.SafeHandle, obsPath);
@@ -132,6 +135,14 @@ public sealed class ObsRecorder : IDisposable
             }
         }
     }
+
+    internal static IReadOnlyList<string> BuildCaptureArguments(CaptureMode mode) => mode switch
+    {
+        CaptureMode.Recording => ["--startrecording"],
+        CaptureMode.Replay => ["--startreplaybuffer"],
+        CaptureMode.Both => ["--startrecording", "--startreplaybuffer"],
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), "Choose recording, replay, or both for capture mode.")
+    };
 
     /// <summary>Requests a normal OBS close and waits up to 20 seconds. Never force-kills OBS.</summary>
     public Task<bool> StopOwnedAsync()

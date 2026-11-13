@@ -1,0 +1,54 @@
+<Window x:Class="JamesTools.PerformanceTimelineWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Performance report timeline" Width="1080" Height="820" MinWidth="760" MinHeight="600"
+        WindowStartupLocation="CenterOwner" Background="#182125" Foreground="#E8ECEF">
+    <Grid Margin="14">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="270"/></Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock x:Name="ReportTitle" Text="Performance report" FontSize="20" FontWeight="SemiBold"/>
+            <TextBlock x:Name="SummaryText" TextWrapping="Wrap" Margin="0,4,0,7" Foreground="#AEBBC0"/>
+        </StackPanel>
+        <StackPanel Grid.Row="1" Margin="0,4,0,8">
+            <WrapPanel VerticalAlignment="Top">
+                <TextBlock Text="Range (s)" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBox x:Name="RangeStart" Width="85" Margin="0,0,6,0"/>
+                <TextBlock Text="to" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBox x:Name="RangeEnd" Width="85" Margin="0,0,6,0"/>
+                <Button Content="Apply range" Click="ApplyRange_Click"/>
+            </WrapPanel>
+            <WrapPanel Margin="0,6,0,0">
+                <TextBlock Text="Exclude (s)" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                <TextBox x:Name="ExcludeStart" Width="58" ToolTip="Excluded start (s)"/>
+                <TextBlock Text="to" VerticalAlignment="Center" Margin="5,0"/>
+                <TextBox x:Name="ExcludeEnd" Width="58" ToolTip="Excluded end (s)"/>
+                <TextBlock Text="Reason" VerticalAlignment="Center" Margin="5,0"/>
+                <TextBox x:Name="ExcludeReason" Width="110" ToolTip="Reason e.g. loading or alt-tab"/>
+                <Button Content="Add excluded interval" Click="AddExclusion_Click"/>
+                <Button Content="Remove" Click="RemoveExclusion_Click"/>
+            </WrapPanel>
+        </StackPanel>
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Canvas x:Name="FramePlot" Height="145" Background="#202B30" Margin="0,2,0,3" SizeChanged="Plot_SizeChanged"/>
+                <Canvas x:Name="CpuGpuPlot" Height="145" Background="#202B30" Margin="0,2,0,3" SizeChanged="Plot_SizeChanged"/>
+                <Canvas x:Name="MemoryPlot" Height="145" Background="#202B30" Margin="0,2,0,3" SizeChanged="Plot_SizeChanged"/>
+                <Canvas x:Name="DiskPlot" Height="145" Background="#202B30" Margin="0,2,0,3" SizeChanged="Plot_SizeChanged"/>
+            </StackPanel>
+        </ScrollViewer>
+        <Grid Grid.Row="3" Margin="0,7,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="Markers (select a stutter to zoom ±10 s)" FontWeight="SemiBold"/>
+                <ListBox x:Name="MarkerList" Height="132" SelectionChanged="MarkerList_SelectionChanged" DisplayMemberPath="Display"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                <ScrollViewer Height="108" VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="AnalysisText" TextWrapping="Wrap"/>
+                </ScrollViewer>
+                <ListBox x:Name="ExclusionList" Height="42" DisplayMemberPath="Display"/>
+                <DataGrid x:Name="SampleTable" Height="105" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

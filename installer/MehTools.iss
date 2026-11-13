@@ -36,6 +36,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\artifacts\publish\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\third_party\PresentMon\PresentMon.exe"; DestDir: "{app}\tools\PresentMon"; Flags: ignoreversion
+Source: "..\third_party\PresentMon\LICENSE.txt"; DestDir: "{app}\tools\PresentMon"; DestName: "LICENSE-PresentMon.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
