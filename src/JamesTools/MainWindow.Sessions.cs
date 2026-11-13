@@ -153,11 +153,13 @@ public partial class MainWindow
         }
         else RunWithSelectedAttachment(path => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }));
     }
-    private void OpenMediaReview(string path, TimeSpan position, Guid? sessionId)
+    private void OpenMediaReview(string path, TimeSpan position, Guid? sessionId) => OpenMediaReview(path, position, sessionId, false);
+    private void OpenMediaReview(string path, TimeSpan position, Guid? sessionId, bool lockSource, string? toolsFolder = null)
     {
-        new RecordingPlaybackWindow(path, position, _appliedSettings.MediaToolsFolder,
+        var guard = lockSource ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+        try { var window = new RecordingPlaybackWindow(path, position, toolsFolder ?? _appliedSettings.MediaToolsFolder,
             target => { if (_sessionStore is null) throw new IOException("Clip published, but session history is unavailable; attach it manually later."); _sessionStore.AddAttachment(sessionId, "Unassigned clip", "", SessionAttachmentKind.Clip, target, DateTime.UtcNow); RefreshSessionList(); },
-            folder => { var saved = _appliedSettings.Snapshot(); saved.MediaToolsFolder = folder; _store.Save(saved); _settings.MediaToolsFolder = folder; _appliedSettings.MediaToolsFolder = folder; }) { Owner = this }.Show();
+            folder => { var saved = _appliedSettings.Snapshot(); saved.MediaToolsFolder = folder; _store.Save(saved); _settings.MediaToolsFolder = folder; _appliedSettings.MediaToolsFolder = folder; }) { Owner = this }; window.Closed += (_, _) => guard?.Dispose(); window.Show(); } catch { guard?.Dispose(); throw; }
     }
 
     private void ShowSessionFile_Click(object sender, RoutedEventArgs e) => RunWithSelectedAttachment(path =>

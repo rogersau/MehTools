@@ -1028,6 +1028,8 @@ public partial class MainWindow : Window
         if (_exiting) return;
         if (!await PreparePerformanceForExitAsync()) return;
         if (!CloseConfigSnapshotsForExit()) return;
+        var wardogs = _wardogsWindow;
+        if (wardogs is not null) { if (!await wardogs.ShutdownAsync()) { wardogs.Activate(); return; } wardogs.Close(); }
         _exiting = true;
         await StopRollingAsync();
         try { _sessionTracker?.Observe(DateTime.UtcNow, false, Array.Empty<SessionGameObservation>()); }

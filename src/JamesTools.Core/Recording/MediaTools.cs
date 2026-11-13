@@ -8,7 +8,7 @@ public sealed record MediaInfo(double Duration, int VideoTracks, int AudioTracks
 public sealed class MediaTools(string folder = "", Func<string, IEnumerable<string>, TimeSpan, CancellationToken, Task<string>>? runner = null)
 {
     private static readonly SemaphoreSlim ThumbnailSlots = new(2);
-    private Task<string> Execute(string name, IEnumerable<string> args, TimeSpan timeout, CancellationToken token) => runner is null ? RunAsync(Resolve(folder, name), args, timeout, token) : runner(name, args, timeout, token);
+    internal Task<string> Execute(string name, IEnumerable<string> args, TimeSpan timeout, CancellationToken token) => runner is null ? RunAsync(Resolve(folder, name), args, timeout, token) : runner(name, args, timeout, token);
     public static string Resolve(string folder, string name)
     {
         var candidates = string.IsNullOrWhiteSpace(folder)
@@ -21,6 +21,7 @@ public sealed class MediaTools(string folder = "", Func<string, IEnumerable<stri
     {
         if (!Path.IsPathFullyQualified(path) || path.StartsWith(@"\\") || path.Contains("://") || path.AsSpan(2).Contains(':')) throw new ArgumentException("Choose an existing local video file.");
         path = Path.GetFullPath(path);
+        if (path.StartsWith(@"\\")) throw new ArgumentException("Choose an existing local video file.");
         if (!new[] { ".mkv", ".mp4", ".mov", ".webm", ".avi", ".m4v" }.Contains(Path.GetExtension(path).ToLowerInvariant()) || !File.Exists(path)) throw new ArgumentException("Choose an existing MKV, MP4, MOV, WebM, AVI or M4V file.");
         return path;
     }
@@ -63,13 +64,15 @@ public sealed class MediaTools(string folder = "", Func<string, IEnumerable<stri
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
-    public async Task<string> ThumbnailAsync(string path, CancellationToken token)
+    public Task<string> ThumbnailAsync(string path, CancellationToken token) => ThumbnailAsync(path, 0, token);
+    public async Task<string> ThumbnailAsync(string path, double seconds, CancellationToken token)
     {
+        if (!double.IsFinite(seconds) || seconds < 0) throw new ArgumentOutOfRangeException(nameof(seconds));
         path = LocalVideo(path);
         var temp = Path.Combine(Path.GetTempPath(), "meh-thumb-" + Guid.NewGuid().ToString("N") + ".png");
         await ThumbnailSlots.WaitAsync(token);
         try {
-            await Execute("ffmpeg", ["-nostdin", "-v", "error", "-n", "-protocol_whitelist", "file", "-format_whitelist", "matroska,webm,mov,avi", "-i", path, "-map", "0:V:0", "-frames:v", "1", "-vf", "scale=320:-1", temp], TimeSpan.FromSeconds(20), token);
+            await Execute("ffmpeg", ["-nostdin", "-v", "error", "-n", "-protocol_whitelist", "file", "-format_whitelist", "matroska,webm,mov,avi", "-ss", seconds.ToString("R", CultureInfo.InvariantCulture), "-i", path, "-map", "0:V:0", "-frames:v", "1", "-vf", "scale=320:-1", temp], TimeSpan.FromSeconds(20), token);
             return temp;
         } catch { if (File.Exists(temp)) File.Delete(temp); throw; }
         finally { ThumbnailSlots.Release(); }

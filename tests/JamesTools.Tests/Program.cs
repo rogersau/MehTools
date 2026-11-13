@@ -5,9 +5,14 @@ using JamesTools.Core.Diagnostics;
 using JamesTools.Core.Platform;
 using JamesTools.Core.Recording;
 
+if (args.Contains("--wardogs-montage-integration")) await WardogsExportTests.Integration();
 if (args.Contains("--media-integration")) await MediaTests.Integration();
+var wardogsIntegration = Array.IndexOf(args, "--wardogs-integration");
+if (wardogsIntegration >= 0) await WardogsTests.Integration(args.ElementAtOrDefault(wardogsIntegration + 1) ?? throw new ArgumentException("Supply an absolute tesseract.exe path after --wardogs-integration."));
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("WARDOGS verified exports and markers", WardogsExportTests.Run),
+    ("WARDOGS synthetic scanner, tracking, cancellation and intervals", WardogsTests.Run),
     ("performance history versions, groups, compatibility and persistence", PerformanceHistoryTests.Run),
     ("configuration snapshots and guarded single-file restore", ConfigSnapshotTests.Run),
     ("network diagnostics fake collectors, summaries, retention and validation", NetworkProbeTests.Run),
@@ -53,6 +58,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("frame analysis aggregates intervals and tail percentiles", FrameAnalysisTests.Run),
     ("diagnostic timeline isolates streams and preserves missing values", DiagnosticReportTests.Run),
     ("saved report timeline parses markers and analyzes ranges", ReportTimelineTests.Run),
+    ("WARDOGS saved reviews, ownership, cancellation and recovery", WardogsReviewTests.Run),
     ("session library tracking, associations, persistence, and recovery", SessionTests.Run),
     ("recording storage planning, capacity warnings, and cleanup suggestions", StorageTests.Run),
     ("live frame CSV handles quoted fields", Tests.LiveFrameCsv)

@@ -509,6 +509,10 @@
                                 </StackPanel>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
+                                <TextBlock Text="Review recordings" FontSize="16" FontWeight="SemiBold"/>
+                                <WrapPanel><Button Content="WARDOGS review…" Click="Wardogs_Click"/></WrapPanel>
+                            </StackPanel></Border>
+                            <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="Recording storage" FontSize="16" FontWeight="SemiBold"/>
                                 <TextBlock Text="Configured folders apply to OBS launched by Meh Tools. An OBS instance already running elsewhere can use a different output folder." Style="{StaticResource Hint}" Margin="0,5,0,10" TextWrapping="Wrap"/>
                                 <ComboBox x:Name="RecordingStorageTarget" DisplayMemberPath="Label" SelectionChanged="RecordingStorageTarget_SelectionChanged" Margin="0,0,0,8"/>
@@ -785,7 +789,7 @@
                                     <WrapPanel>
                                         <ComboBox x:Name="SessionAttachmentKindBox" Width="155" Margin="4"/>
                                         <Button Content="Attach file…" Click="AttachSessionFile_Click"/>
-                                        <Button x:Name="OpenSessionFileButton" Content="Open selected file" Click="OpenSessionFile_Click" IsEnabled="False"/>
+                                        <Button Content="Scan selected video…" Click="ScanSessionFile_Click"/><Button x:Name="OpenSessionFileButton" Content="Open selected file" Click="OpenSessionFile_Click" IsEnabled="False"/>
                                         <Button x:Name="ShowSessionFileButton" Content="Show in folder" Click="ShowSessionFile_Click" IsEnabled="False"/>
                                         <Button x:Name="ViewSessionReportButton" Content="View report" Click="ViewSessionReport_Click" IsEnabled="False"/>
                                         <Button x:Name="CompareSessionButton" Content="Compare with previous" Click="CompareSession_Click" IsEnabled="False"/>
