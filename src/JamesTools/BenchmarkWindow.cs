@@ -38,10 +38,11 @@ public sealed class BenchmarkWindow : Window
         Func<BenchmarkRecipe, BenchmarkRun, BenchmarkRunner, Action<BenchmarkRun>, CancellationToken, Task<BenchmarkRun>> capture, Action<string> open)
     {
         this.store = store; this.gameKey = gameKey; this.capture = capture; this.open = open;
-        Title = "Benchmark recipes — " + gameName; Width = 680; Height = 850;
+        WindowTheme.Apply(this);
+        Title = "Benchmark recipes — " + gameName; Width = 680; Height = 850; MinWidth = 520; MinHeight = 480;
         var panel = new StackPanel { Margin = new Thickness(16) }; Content = new ScrollViewer { Content = panel };
         void Field(string label, UIElement control) { panel.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 7, 0, 2) }); panel.Children.Add(control); }
-        void Button(string label, Action action) { var b = new Button { Content = label, Margin = new Thickness(0, 4, 0, 0) }; b.Click += (_, _) => { try { action(); } catch (Exception ex) { status.Text = ex.Message; } }; panel.Children.Add(b); }
+        void Button(string label, Action action) { var b = new Button { Content = label, Margin = new Thickness(0, 4, 8, 4) }; b.Click += (_, _) => { try { action(); } catch (Exception ex) { status.Text = ex.Message; } }; var bar = panel.Children.Count > 0 ? panel.Children[panel.Children.Count - 1] as WrapPanel : null; if (bar is null) { bar = new WrapPanel(); panel.Children.Add(bar); } bar.Children.Add(b); }
         Field("Saved recipes (edits take effect only after Save)", recipes);
         recipes.SelectionChanged += (_, _) => { if (recipes.SelectedItem is BenchmarkRecipe r) { name.Text = r.Name; scene.Text = r.Instructions; settings.Text = r.Settings; warm.Text = r.WarmupSeconds.ToString(); duration.Text = r.CaptureSeconds.ToString(); count.Text = r.Runs.ToString(); } };
         recipes.DisplayMemberPath = "Name";
@@ -83,6 +84,6 @@ public sealed class BenchmarkWindow : Window
             if (!closed) { Refresh(); status.Text = "Run finished. Reset the scene manually before Ready / Start. " + result.Reason; }
         }
         catch (Exception ex) { if (!closed) { status.Text = "Run could not finish/save: " + ex.Message; if (active != null) results.Text = BenchmarkResults.Describe(active); } }
-        finally { cancel.Dispose(); cancel = null; if (closing) Close(); }
+        finally { cancel.Dispose(); cancel = null; if (closing && !closed) _ = Dispatcher.BeginInvoke(new Action(() => { if (!closed) Close(); })); }
     }
 }

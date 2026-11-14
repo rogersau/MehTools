@@ -5,12 +5,18 @@ using JamesTools.Core.Diagnostics;
 using JamesTools.Core.Platform;
 using JamesTools.Core.Recording;
 
+if (args.Length == 2 && args[0].EndsWith(".fake.dll")) return await LiveWorkerTests.Child(args[0]);
 if (args.Contains("--wardogs-montage-integration")) await WardogsExportTests.Integration();
 if (args.Contains("--media-integration")) await MediaTests.Integration();
 var wardogsIntegration = Array.IndexOf(args, "--wardogs-integration");
 if (wardogsIntegration >= 0) await WardogsTests.Integration(args.ElementAtOrDefault(wardogsIntegration + 1) ?? throw new ArgumentException("Supply an absolute tesseract.exe path after --wardogs-integration."));
+if (args.Length >= 5 && args[0] == "--live-replay") await LiveWardogsTests.Replay(args[1], args[2], args[3], args.Skip(4).ToArray());
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("live capture lifecycle and explicit-run cleanup", LiveCaptureTests.Run),
+    ("WARDOGS owned worker startup, timeout, exit and cancellation", LiveWorkerTests.Run),
+    ("WARDOGS live resets, stale frames, gating, assists and failures", LiveWardogsSequenceTests.Run),
+    ("WARDOGS live baseline, refinement and cleanup", LiveWardogsTests.Run),
     ("WARDOGS verified exports and markers", WardogsExportTests.Run),
     ("WARDOGS synthetic scanner, tracking, cancellation and intervals", WardogsTests.Run),
     ("performance history versions, groups, compatibility and persistence", PerformanceHistoryTests.Run),

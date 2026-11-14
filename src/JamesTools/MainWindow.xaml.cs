@@ -527,6 +527,7 @@ public partial class MainWindow : Window
                 Background = (System.Windows.Media.Brush)FindResource("BackgroundBrush"),
                 Foreground = (System.Windows.Media.Brush)FindResource("TextBrush")
             };
+            WindowTheme.Apply(dialog);
             var layout = new DockPanel { Margin = new Thickness(20) };
             var hint = new TextBlock { Text = "Pick the game you want to add.",
                 Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
@@ -539,7 +540,6 @@ public partial class MainWindow : Window
             var cancel = new System.Windows.Controls.Button { Content = "Cancel", IsCancel = true, Margin = new Thickness(0) };
             buttons.Children.Add(add); buttons.Children.Add(cancel); layout.Children.Add(buttons);
             var list = new System.Windows.Controls.ListBox { ItemsSource = choices, SelectedIndex = 0,
-                Background = System.Windows.Media.Brushes.White, Foreground = System.Windows.Media.Brushes.Black,
                 BorderThickness = new Thickness(0), Padding = new Thickness(5) };
             layout.Children.Add(list);
             add.Click += (_, _) => { if (list.SelectedItem is RunningGameChoice) dialog.DialogResult = true; };
@@ -688,7 +688,7 @@ public partial class MainWindow : Window
         if (_exiting) return;
         e.Cancel = true;
         if (_settings.MinimizeToTray) Hide();
-        else _ = ExitAsync();
+        else _ = Dispatcher.InvokeAsync(ExitAsync);
     }
 
     private void Window_StateChanged(object? sender, EventArgs e)
@@ -1028,6 +1028,8 @@ public partial class MainWindow : Window
         if (_exiting) return;
         if (!await PreparePerformanceForExitAsync()) return;
         if (!CloseConfigSnapshotsForExit()) return;
+        foreach (var playback in OwnedWindows.OfType<RecordingPlaybackWindow>().ToArray()) { await playback.ShutdownAsync(); playback.Close(); }
+        if (_liveWardogsWindow is { } live) { await live.ShutdownAsync(); live.Close(); }
         var wardogs = _wardogsWindow;
         if (wardogs is not null) { if (!await wardogs.ShutdownAsync()) { wardogs.Activate(); return; } wardogs.Close(); }
         _exiting = true;

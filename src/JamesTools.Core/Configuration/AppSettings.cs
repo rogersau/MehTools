@@ -4,6 +4,7 @@ namespace JamesTools.Core.Configuration;
 
 public sealed class AppSettings
 {
+    public LiveWardogsSettings LiveWardogs { get; set; } = new();
     public int SchemaVersion { get; set; } = 2;
     public bool AutomationEnabled { get; set; }
     public bool StartWithWindows { get; set; }
@@ -84,6 +85,7 @@ public sealed class AppSettings
 
     public AppSettings Snapshot() => new()
     {
+        LiveWardogs = (LiveWardogs ?? new()).Copy(),
         SchemaVersion = SchemaVersion,
         NetworkDiagnosticsEnabled = NetworkDiagnosticsEnabled,
         NetworkTargets = NetworkTargets,

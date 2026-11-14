@@ -20,3 +20,5 @@ jobs:
         run: dotnet build JamesTools.sln --configuration Release
       - name: Test
         run: dotnet run --project tests/JamesTools.Tests --configuration Release --no-build
+      - name: WPF layout and close regression checks
+        run: dotnet run --project tests/JamesTools.UiTests --configuration Release --no-build

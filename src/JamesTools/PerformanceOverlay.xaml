@@ -1,6 +1,6 @@
 <Window x:Class="JamesTools.PerformanceOverlay"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:JamesTools" ui:WindowTheme.Enabled="True"
         Title="Performance monitor" Width="260" SizeToContent="Height" WindowStyle="None"
         ResizeMode="NoResize" ShowInTaskbar="False" ShowActivated="False" Topmost="True"
         WindowStartupLocation="Manual" Background="#E810161D" Foreground="#EDF4F4">

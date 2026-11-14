@@ -14,7 +14,7 @@ A small Windows desktop companion for game recording, NVIDIA digital vibrance, a
 
 ## Requirements
 
-- 64-bit Windows 10 or 11.
+- 64-bit Windows 10 (build 19041 / version 2004 or later) or Windows 11.
 - The [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0), unless using a self-contained build.
 - OBS Studio on Windows, already configured with an active scene containing a **visible Game Capture** source. Portable and standard installations are supported.
 - An NVIDIA GPU and NVIDIA-controlled displays for digital vibrance. Power and recording controls work independently of NVIDIA.
@@ -184,3 +184,5 @@ Performance history: select a configured game in Performance, then choose Perfor
 History uses a versioned local performance-history.json with atomic replacement and backup. Opening unchanged history does not rewrite metadata; new session report references are indexed once. Indexed measurements are immutable, and stale windows cannot overwrite newer metadata. Local report reads/hashes are bounded to 32 MiB; unsupported/missing files remain listed. Whole-report recorded summaries are used; absent P99/stutter data stays unavailable. Frame trends exclude unverified, unknown/multiple-stream or unsupported methodologies and differing network configurations. Stream IDs are exposed and may change between runs. Group declarations do not prove causal comparability or statistical significance. Recording context is Unknown; no OBS connection or recording-attachment inference is performed. The chart selector shows discrete means, P99, stutter counts/rates or secondary CPU/GPU/memory metrics without interpolation, using the latest 200 group members; all reports remain listed. Dates use validated capture start time, otherwise explicitly observed/imported time. Source verification time is displayed; Open timeline rechecks content. No report files are changed or removed.
 
 WARDOGS candidate review is available from **Recording → WARDOGS review…** and a selected Sessions recording/clip via **Scan selected video…**. Explicitly choose local FFmpeg/Tesseract tools, add files, review approximate OCR guesses, keep/reject rows and save labels and merged interval choices. Export KEEP moments as a verified MKV montage, CSV timeline or SRT source markers. Exports verify the source fingerprint, refuse overwrite and support cancellation. Montage cuts are keyframe approximate; all audio is preserved or export fails. Selected candidates have timestamp thumbnails with a text fallback. The preset has no real-game accuracy validation. See [scanner and saved-review guide](docs/wardogs-scanner.md).
+
+Live WARDOGS detection is an explicit opt-in under **Recording → Live WARDOGS**. Select an exact game window and trusted external Tesseract 5 / English tessdata paths, then Start and focus the game. It pauses on focus loss and never creates clips or bookmarks. See [workflow, diagnostics and limitations](docs/live-wardogs.md).

@@ -50,10 +50,15 @@ public sealed class WardogsReviewWindow : Window
     public WardogsReviewWindow(string directory, string toolsFolder, Action<string, TimeSpan, Guid?, string> playback, Action<WardogsPublishedExport>? published = null)
     {
         this.published = published; this.playback = playback; store = new(directory, new NativeWardogsScanWork());
-        Title = "WARDOGS recording review"; Width = 1150; Height = 850; MinWidth = 800; MinHeight = 700;
-        var root = new DockPanel { Margin = new Thickness(12), Background = System.Windows.SystemColors.WindowBrush }; Content = root;
-        var top = new StackPanel(); var topScroll = new ScrollViewer { Content = top, MaxHeight = 250, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; DockPanel.SetDock(topScroll, Dock.Top); root.Children.Add(topScroll);
-        top.Children.Add(new TextBlock { Text = "Review detected moments before keeping them. Detection accuracy needs calibration on gameplay. Files added here remain unassigned.", TextWrapping = TextWrapping.Wrap });
+        WindowTheme.Apply(this);
+        Title = "WARDOGS recording review"; Width = 1150; Height = 850; MinWidth = 800; MinHeight = 650;
+        var root = new Grid { Margin = new Thickness(16) }; Content = root;
+        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star), MinHeight = 120 });
+        root.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        var top = new StackPanel(); var topScroll = new ScrollViewer { Content = top, MaxHeight = 190, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; root.Children.Add(topScroll);
+        top.Children.Add(new TextBlock { Text = "Review detected moments before keeping them. Detection needs calibration on gameplay; files added here remain unassigned.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
         var buttons = new WrapPanel(); top.Children.Add(buttons);
         void Button(Panel panel, string label, Action action) { var b = new Button { Content = label, Margin = new Thickness(3) }; b.Click += (_, _) => { try { action(); } catch (Exception ex) { status.Text = ex.Message; } }; panel.Children.Add(b); }
         Button(buttons, "Add files…", () => { var p = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Filter = "Video|*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v" }; if (p.ShowDialog(this) == true) _ = AddFilesAsync(p.FileNames, null); });
@@ -61,16 +66,19 @@ public sealed class WardogsReviewWindow : Window
         Button(buttons, "Remove saved scan", () => _ = Safe(async () => { if (selected is { } s) { await store.RemoveAsync(s.Id); if (selected?.Id == s.Id) { selected = null; generation++; table.ItemsSource = null; detail.Text = ""; intervals.Text = ""; } await Refresh(); } }));
         Button(buttons, "Cancel pending", () => _ = Safe(async () => { await store.CancelPendingAsync(); await Refresh(); }));
         Button(buttons, "Rescan selected", () => { if (selected is { } s) _ = AddFilesAsync([s.Source], s.SessionId); });
-        var advanced = new StackPanel(); top.Children.Add(new Expander { Header = "Tools and advanced sampling (saved with each queued file)", Content = new ScrollViewer { Content = advanced, MaxHeight = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } });
-        void Field(Panel panel, string label, TextBox box, string value) { var line = new DockPanel(); line.Children.Add(new TextBlock { Text = label, Width = 240 }); box.Text = value; line.Children.Add(box); panel.Children.Add(line); }
+        var advanced = new StackPanel { Margin = new Thickness(0, 8, 0, 8) }; top.Children.Add(new Expander { Header = "Tools and sampling · saved with each queued file", Content = advanced, Margin = new Thickness(0, 8, 0, 0) });
+        void Field(Panel panel, string label, TextBox box, string value) { var line = new StackPanel { Margin = new Thickness(0, 4, 10, 5) }; line.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) }); box.Text = value; line.Children.Add(box); panel.Children.Add(line); }
         Field(advanced, "FFmpeg folder (blank uses resolver)", tools, toolsFolder);
-        Button(advanced, "Browse FFmpeg folder…", () => { var p = new Microsoft.Win32.OpenFolderDialog(); if (p.ShowDialog(this) == true) tools.Text = p.FolderName; });
+        var toolsBrowse = new WrapPanel(); advanced.Children.Add(toolsBrowse); Button(toolsBrowse, "Browse FFmpeg folder…", () => { var p = new Microsoft.Win32.OpenFolderDialog(); if (p.ShowDialog(this) == true) tools.Text = p.FolderName; });
         Field(advanced, "Tesseract executable (requires eng data)", tess, "");
-        Button(advanced, "Browse Tesseract…", () => { var p = new Microsoft.Win32.OpenFileDialog { Filter = "Executable|*.exe" }; if (p.ShowDialog(this) == true) tess.Text = p.FileName; });
+        var tessBrowse = new WrapPanel(); advanced.Children.Add(tessBrowse); Button(tessBrowse, "Browse Tesseract…", () => { var p = new Microsoft.Win32.OpenFileDialog { Filter = "Executable|*.exe" }; if (p.ShowDialog(this) == true) tess.Text = p.FileName; });
         Field(advanced, "Samples per second (.1–10)", fps, "2"); Field(advanced, "Minimum OCR confidence (0–100)", confidence, "35"); Field(advanced, "Normalized crop: X,Y,Width,Height", crop, "0.65,0,0.35,0.35");
-        Button(advanced, "Reset sampling", () => { fps.Text = "2"; confidence.Text = "35"; crop.Text = "0.65,0,0.35,0.35"; });
-        top.Children.Add(status); scans.Height = 115; top.Children.Add(scans); top.Children.Add(detail);
-        var bottom = new StackPanel(); var bottomScroll = new ScrollViewer { Content = bottom, MaxHeight = 270, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; DockPanel.SetDock(bottomScroll, Dock.Bottom); root.Children.Add(bottomScroll);
+        var samplingButtons = new WrapPanel(); advanced.Children.Add(samplingButtons); Button(samplingButtons, "Reset sampling", () => { fps.Text = "2"; confidence.Text = "35"; crop.Text = "0.65,0,0.35,0.35"; });
+        top.Children.Add(status);
+        var sourcePanel = new StackPanel(); sourcePanel.Children.Add(new TextBlock { Text = "Saved scans", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 4) }); scans.Height = 80; sourcePanel.Children.Add(scans); sourcePanel.Children.Add(detail);
+        var sourceScroll = new ScrollViewer { Content = sourcePanel, MaxHeight = 135, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 4, 0, 8) }; Grid.SetRow(sourceScroll, 1); root.Children.Add(sourceScroll);
+        var bottom = new StackPanel(); var bottomScroll = new ScrollViewer { Content = bottom, MaxHeight = 240, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 8, 0, 0) }; Grid.SetRow(bottomScroll, 3); root.Children.Add(bottomScroll);
+        root.SizeChanged += (_, e) => { topScroll.MaxHeight = Math.Max(100, e.NewSize.Height * .25); sourceScroll.MaxHeight = Math.Max(90, e.NewSize.Height * .18); bottomScroll.MaxHeight = Math.Max(150, e.NewSize.Height * .31); };
         var exports = new WrapPanel(); bottom.Children.Add(exports);
         foreach (var kind in Enum.GetValues<WardogsExportKind>()) Button(exports, kind == WardogsExportKind.Montage ? "Export highlights (.mkv)…" : "Export " + kind.ToString().ToUpperInvariant() + "…", () => { if (exportTask is null || exportTask.IsCompleted) exportTask = Export(kind); });
         Button(exports, "Cancel export", () => exportCancel?.Cancel());
@@ -79,19 +87,22 @@ public sealed class WardogsReviewWindow : Window
         bottom.Children.Add(new TextBlock { Text = "Highlight cuts are approximate and can include extra footage around keyframes. Every audio track is retained.", TextWrapping = TextWrapping.Wrap });
         var preview = new DockPanel(); DockPanel.SetDock(thumbnail, Dock.Left); preview.Children.Add(thumbnail); preview.Children.Add(thumbnailStatus); bottom.Children.Add(preview);
         var review = new WrapPanel(); bottom.Children.Add(review);
-        foreach (var d in Enum.GetValues<ReviewDecision>()) Button(review, "Set selected " + d, () => { foreach (Row row in table.SelectedItems) row.Decision = d; table.Items.Refresh(); _ = SaveReview(); });
-        Button(review, "Save decisions / labels / intervals", () => _ = SaveReview());
-        Button(review, "Verify source and open selected timestamp", () => _ = OpenSelected());
-        Field(bottom, "Pre seconds", pre, "10"); Field(bottom, "Post seconds", post, "5"); Field(bottom, "Merge gap seconds", gap, "0"); bottom.Children.Add(new ScrollViewer { Content = intervals, MaxHeight = 70, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        foreach (var d in Enum.GetValues<ReviewDecision>()) Button(review, "Mark " + d, () => { foreach (Row row in table.SelectedItems) row.Decision = d; table.Items.Refresh(); _ = SaveReview(); });
+        Button(review, "Save review", () => _ = SaveReview());
+        Button(review, "Verify and open moment", () => _ = OpenSelected());
+        var timing = new WrapPanel(); bottom.Children.Add(timing); pre.Width = post.Width = gap.Width = 130;
+        Field(timing, "Before (seconds)", pre, "10"); Field(timing, "After (seconds)", post, "5"); Field(timing, "Merge gap (seconds)", gap, "0"); bottom.Children.Add(intervals);
         foreach (var name in new[] { "Seconds", "Kind", "Text", "Confidence" }) table.Columns.Add(new DataGridTextColumn { Header = name == "Confidence" ? "OCR confidence" : name, Binding = new Binding(name), IsReadOnly = true, Width = name == "Text" ? new DataGridLength(2, DataGridLengthUnitType.Star) : name == "Confidence" ? 110 : 80, MinWidth = name == "Text" ? 160 : 65 });
-        table.Columns.Add(new DataGridComboBoxColumn { Header = "Decision", Width = 110, ItemsSource = Enum.GetValues<ReviewDecision>(), SelectedItemBinding = new Binding("Decision") { UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged } });
-        table.Columns.Add(new DataGridTextColumn { Header = "Label", MinWidth = 120, Width = new DataGridLength(1, DataGridLengthUnitType.Star), Binding = new Binding("Label") { UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged } }); root.Children.Add(table);
+        var decisionDisplay = new Style(typeof(System.Windows.Controls.ComboBox), (Style)FindResource(typeof(System.Windows.Controls.ComboBox)));
+        decisionDisplay.Setters.Add(new Setter(IsHitTestVisibleProperty, false)); decisionDisplay.Setters.Add(new Setter(FocusableProperty, false));
+        table.Columns.Add(new DataGridComboBoxColumn { Header = "Decision", Width = 125, ElementStyle = decisionDisplay, EditingElementStyle = (Style)FindResource(typeof(System.Windows.Controls.ComboBox)), ItemsSource = Enum.GetValues<ReviewDecision>(), SelectedItemBinding = new Binding("Decision") { UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged } });
+        table.Columns.Add(new DataGridTextColumn { Header = "Label", MinWidth = 120, Width = new DataGridLength(1, DataGridLengthUnitType.Star), EditingElementStyle = (Style)FindResource(typeof(TextBox)), Binding = new Binding("Label") { UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged } }); Grid.SetRow(table, 2); root.Children.Add(table);
         scans.SelectionChanged += (_, _) => { if (!refreshing) _ = SelectScan(); };
         table.SelectionChanged += (_, _) => { thumbnailCancel?.Cancel(); thumbnailTask = Thumbnail(); };
         table.CellEditEnding += (_, _) => Dispatcher.BeginInvoke(new Action(() => _ = SaveReview()));
         AllowDrop = true; Drop += (_, e) => { if (e.Data.GetData(DataFormats.FileDrop) is string[] paths) _ = AddFilesAsync(paths, null); };
         Loaded += async (_, _) => { if (!closing) { initialization = Initialize(); await initialization; } };
-        Closing += async (_, e) => { if (allowClose) return; e.Cancel = true; if (closing) return; if (await ShutdownAsync()) Close(); };
+        Closing += async (_, e) => { if (allowClose) return; e.Cancel = true; if (closing) return; if (await ShutdownAsync()) _ = Dispatcher.BeginInvoke(new Action(Close)); };
     }
     private static string N(double v) => v.ToString("R", CultureInfo.InvariantCulture);
     private static double Number(TextBox box) => double.Parse(box.Text, CultureInfo.InvariantCulture);

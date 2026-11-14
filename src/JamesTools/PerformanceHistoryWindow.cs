@@ -26,7 +26,7 @@ public sealed class PerformanceHistoryWindow : Window
     readonly ComboBox metric = new() { ItemsSource = new[] { "Mean ms", "P99 ms", "Stutters", "Stutters/1000 frames", "CPU %", "GPU %", "RAM MiB" }, SelectedIndex = 0 };
     sealed record Entry(HistoryReport Report, string Label);
     HistoryReport? Selected => (reports.SelectedItem as Entry)?.Report;
-    readonly Canvas chart = new() { Height = 100, Background = Brushes.WhiteSmoke };
+    readonly Canvas chart = new() { Height = 100 };
     readonly Dictionary<Guid, string> verification = [];
     HistoryReport? baseline;
     bool busy, closed, reloading;
@@ -34,14 +34,19 @@ public sealed class PerformanceHistoryWindow : Window
     public PerformanceHistoryWindow(PerformanceHistoryStore store, string game, string title, (string Path, string Reference, DateTime Observed)[] sources, Action<string, string> open)
     {
         this.store = store; this.game = game; this.open = open;
-        Title = title + " — Performance history"; Width = 1050; Height = 850;
+        WindowTheme.Apply(this);
+        Title = title + " — Performance history"; Width = 1050; Height = 850; MinWidth = 650; MinHeight = 500;
+        chart.SetResourceReference(BackgroundProperty, "PanelBrush");
         var panel = new StackPanel { Margin = new Thickness(14) }; Content = new ScrollViewer { Content = panel };
         panel.Children.Add(new TextBlock { Text = "Select an explicit comparison group. Declarations describe workload; differences do not establish cause.", TextWrapping = TextWrapping.Wrap });
-        var bar = new WrapPanel(); panel.Children.Add(bar); bar.Children.Add(groups); bar.Children.Add(name); bar.Children.Add(declaration);
+        var groupFields = new WrapPanel(); panel.Children.Add(groupFields);
+        void Field(string label, System.Windows.Controls.Control control) { var field = new StackPanel { Margin = new Thickness(0, 8, 10, 8) }; field.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 4) }); field.Children.Add(control); groupFields.Children.Add(field); }
+        Field("Comparison group", groups); Field("Group name", name); Field("Shared scene / settings", declaration);
+        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; panel.Children.Add(bar);
         Button(bar, "New group", () => { groups.SelectedItem = null; name.Text = ""; declaration.Text = ""; return Task.CompletedTask; });
         Button(bar, "Save/new group", async () => { var g = groups.SelectedItem as HistoryGroup; var next=new HistoryGroup(g?.Id ?? Guid.NewGuid(),game,name.Text,declaration.Text,g?.Members ?? []); await Change(d => d with { Groups = d.Groups.Where(x => x.Id != next.Id).Append(next).ToArray() }); await Reload(next.Id); });
         Button(bar, "Delete group", async () => { if (groups.SelectedItem is HistoryGroup g) await Change(d => d with { Groups = d.Groups.Where(x => x.Id != g.Id).ToArray() }); await Reload(); });
-        panel.Children.Add(reports);
+        panel.Children.Add(new TextBlock { Text = "Reports", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 5) }); panel.Children.Add(reports);
         var actions = new WrapPanel(); panel.Children.Add(actions);
         Button(actions, "Import saved report", async () => { var picker = new Microsoft.Win32.OpenFileDialog { Filter = "Saved reports|*.md;*.txt|All files|*.*" }; if (picker.ShowDialog(this) == true) { var r = await PerformanceHistoryStore.IndexAsync(game, picker.FileName, "Explicit import", DateTime.UtcNow); if(closed)return; await Change(d => d with { Reports = d.Reports.Append(r).ToArray() }); await Reload(); } });
         Button(actions, "Add/remove membership", async () => { if (groups.SelectedItem is not HistoryGroup g || Selected is not HistoryReport r) throw new InvalidOperationException("Select a group and a report first."); await Change(d => d with { Groups = d.Groups.Select(x => x.Id != g.Id ? x : x with { Members = x.Members.Contains(r.Id) ? x.Members.Where(id => id != r.Id).ToArray() : x.Members.Append(r.Id).ToArray() }).ToArray() }); await Reload(); });
@@ -51,8 +56,9 @@ public sealed class PerformanceHistoryWindow : Window
         Button(actions, "Reindex new version", async () => { if (Selected is HistoryReport r) { var next = await PerformanceHistoryStore.IndexAsync(game, r.Path, r.Reference, DateTime.UtcNow, r.Id); if(closed)return; await Change(d => d with { Reports = d.Reports.Append(next).ToArray() }); await Reload(); } });
         Button(actions, "Open timeline", async () => { if (Selected is HistoryReport r) { var text = await PerformanceHistoryStore.ReadVerifiedAsync(r); if (!closed) open(text, System.IO.Path.GetFileName(r.Path)); } });
         panel.Children.Add(new TextBlock { Text = "User annotation (driver update, graphics changes, OBS on/off):" }); panel.Children.Add(notes);
-        Button(panel, "Save annotation", async () => { var annotation=notes.Text; if (Selected is HistoryReport r) await Change(d => d with { Reports = d.Reports.Select(x => x.Id == r.Id ? x with { Notes = annotation } : x).ToArray() }); await Reload(); });
-        panel.Children.Add(metric); metric.SelectionChanged += (_, _) => Render();
+        var annotationActions = new WrapPanel(); panel.Children.Add(annotationActions);
+        Button(annotationActions, "Save annotation", async () => { var annotation=notes.Text; if (Selected is HistoryReport r) await Change(d => d with { Reports = d.Reports.Select(x => x.Id == r.Id ? x with { Notes = annotation } : x).ToArray() }); await Reload(); });
+        panel.Children.Add(new TextBlock { Text = "Trend metric", Margin = new Thickness(0, 8, 0, 5) }); panel.Children.Add(metric); metric.SelectionChanged += (_, _) => Render();
         panel.Children.Add(chart); panel.Children.Add(details); panel.Children.Add(status);
         reports.SelectionChanged += (_, _) => { if(reloading)return; notes.Text = (Selected)?.Notes ?? ""; Render(); };
         groups.SelectionChanged += (_, _) => { if(reloading)return; baseline=null; if (groups.SelectedItem is HistoryGroup g) { name.Text = g.Name; declaration.Text = g.Declaration; } Render(); };
@@ -107,7 +113,7 @@ public sealed class PerformanceHistoryWindow : Window
         var group = groups.SelectedItem as HistoryGroup;
         var all = store.Snapshot().Reports.Where(r => r.Game == game).ToArray();
         var text = new System.Text.StringBuilder(); chart.Children.Clear();
-        chart.Children.Add(new TextBlock { Text = $"{metric.SelectedItem}; report order →", Foreground = Brushes.Black });
+        chart.Children.Add(new TextBlock { Text = $"{metric.SelectedItem}; report order →", Foreground = (System.Windows.Media.Brush)FindResource("TextBrush") });
         text.AppendLine("Group table: date | mean ms | P99 ms | stutters | per 1000 frames | CPU % | GPU % | RAM MiB | status");
         var allMembers = all.Where(r => group?.Members.Contains(r.Id) == true).OrderBy(r=>r.SortTime).ThenBy(r=>r.Id).ToArray();
         var rows=allMembers.TakeLast(200).ToArray();

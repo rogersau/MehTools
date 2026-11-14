@@ -3,6 +3,20 @@ using JamesTools.Core.Sessions;
 namespace JamesTools;
 public partial class MainWindow
 {
+    private LiveWardogsWindow? _liveWardogsWindow;
+    private void LiveWardogs_Click(object sender, RoutedEventArgs e)
+    {
+        if (_liveWardogsWindow is null) {
+            _liveWardogsWindow = new LiveWardogsWindow(_appliedSettings.LiveWardogs, config => {
+                var saved = _appliedSettings.Snapshot(); saved.LiveWardogs = config.Copy();
+                _store.Save(saved);
+                _appliedSettings.LiveWardogs = config.Copy();
+                if (DataContext is JamesTools.Core.Configuration.AppSettings editing) editing.LiveWardogs = config.Copy();
+            }) { Owner = this };
+            _liveWardogsWindow.Closed += (_, _) => _liveWardogsWindow = null;
+            _liveWardogsWindow.Show();
+        } else _liveWardogsWindow.Activate();
+    }
     private WardogsReviewWindow? _wardogsWindow;
     private void Wardogs_Click(object sender, RoutedEventArgs e) => ShowWardogs();
     private async void ScanSessionFile_Click(object sender, RoutedEventArgs e)

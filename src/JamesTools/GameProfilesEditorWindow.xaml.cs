@@ -50,9 +50,10 @@ public partial class GameProfilesEditorWindow : Window
         ReplayBox.Text = profile?.ReplayBufferSeconds?.ToString() ?? "";
         DelayBox.Text = profile?.RecordingStopDelaySeconds?.ToString() ?? "";
         VibranceBox.Text = profile?.VibrancePercent?.ToString() ?? "";
-        CaptureModeBox.SelectedValue = profile?.CaptureMode;
-        OverlayPresetBox.SelectedValue = profile?.OverlayPreset;
-        PowerPlanBox.SelectedValue = profile?.PowerPlanId is Guid id && id != Guid.Empty ? id : null;
+        CaptureModeBox.SelectedItem = CaptureModeBox.Items.Cast<ProfileValueOption<CaptureMode>>().FirstOrDefault(option => option.Value == profile?.CaptureMode);
+        OverlayPresetBox.SelectedItem = OverlayPresetBox.Items.Cast<ProfileValueOption<OverlayPreset>>().FirstOrDefault(option => option.Value == profile?.OverlayPreset);
+        Guid? power = profile?.PowerPlanId is Guid id && id != Guid.Empty ? id : null;
+        PowerPlanBox.SelectedItem = availablePlans.FirstOrDefault(option => option.Id == power);
         _loading = false;
     }
 

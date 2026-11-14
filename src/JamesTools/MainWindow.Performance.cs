@@ -288,11 +288,12 @@ public partial class MainWindow
 
     private void ShowComparison(string comparison, string title)
     {
-        var window = new Window { Title = title, Owner = this, Width = 760, Height = 620, MinWidth = 520, MinHeight = 360, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(24, 33, 37)), Foreground = System.Windows.Media.Brushes.White };
+        var window = new Window { Title = title, Owner = this, Width = 760, Height = 620, MinWidth = 520, MinHeight = 360, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        WindowTheme.Apply(window);
         var grid = new System.Windows.Controls.Grid { Margin = new Thickness(12) };
         grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition { Height = GridLength.Auto });
-        var box = new System.Windows.Controls.TextBox { Text = comparison, IsReadOnly = true, AcceptsReturn = true, TextWrapping = System.Windows.TextWrapping.Wrap, VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto, Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(30, 42, 47)), Foreground = System.Windows.Media.Brushes.White };
+        var box = new System.Windows.Controls.TextBox { Text = comparison, IsReadOnly = true, AcceptsReturn = true, TextWrapping = System.Windows.TextWrapping.Wrap, VerticalScrollBarVisibility = System.Windows.Controls.ScrollBarVisibility.Auto };
         var save = new System.Windows.Controls.Button { Content = "Save comparison…", HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 5, 10, 5) };
         save.Click += (_, _) => { var picker = new Microsoft.Win32.SaveFileDialog { Title = "Save comparison", Filter = "Text report (*.txt)|*.txt|Markdown report (*.md)|*.md", FileName = $"Meh-Tools-comparison-{DateTime.Now:yyyy-MM-dd-HHmm}.txt" }; if (picker.ShowDialog(window) == true) try { File.WriteAllText(picker.FileName, comparison, new UTF8Encoding(false)); } catch (Exception ex) { MessageBox.Show(window, ex.Message, "Couldn't save comparison", MessageBoxButton.OK, MessageBoxImage.Warning); } };
         grid.Children.Add(box); System.Windows.Controls.Grid.SetRow(save, 1); grid.Children.Add(save); window.Content = grid; window.Show();

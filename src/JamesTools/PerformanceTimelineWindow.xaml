@@ -1,10 +1,10 @@
 <Window x:Class="JamesTools.PerformanceTimelineWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:JamesTools" ui:WindowTheme.Enabled="True"
         Title="Performance report timeline" Width="1080" Height="820" MinWidth="760" MinHeight="600"
-        WindowStartupLocation="CenterOwner" Background="#182125" Foreground="#E8ECEF">
+        WindowStartupLocation="CenterOwner" >
     <Grid Margin="14">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="270"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="2*" MinHeight="100"/><RowDefinition Height="1.3*" MinHeight="140" MaxHeight="270"/></Grid.RowDefinitions>
         <StackPanel>
             <TextBlock x:Name="ReportTitle" Text="Performance report" FontSize="20" FontWeight="SemiBold"/>
             <TextBlock x:Name="SummaryText" TextWrapping="Wrap" Margin="0,4,0,7" Foreground="#AEBBC0"/>
@@ -43,7 +43,7 @@
                 <Canvas x:Name="DiskPlot" Height="145" Background="#202B30" Margin="0,2,0,3" SizeChanged="Plot_SizeChanged"/>
             </StackPanel>
         </ScrollViewer>
-        <Grid Grid.Row="3" Margin="0,7,0,0">
+        <ScrollViewer Grid.Row="3" Margin="0,7,0,0" VerticalScrollBarVisibility="Auto"><Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="Markers (select a stutter to zoom ±10 s)" FontWeight="SemiBold"/>
@@ -56,6 +56,6 @@
                 <ListBox x:Name="ExclusionList" Height="42" DisplayMemberPath="Display"/>
                 <DataGrid x:Name="SampleTable" Height="105" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column"/>
             </StackPanel>
-        </Grid>
+        </Grid></ScrollViewer>
     </Grid>
 </Window>

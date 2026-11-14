@@ -1,12 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\JamesTools.Core\JamesTools.Core.csproj" />
+    <ProjectReference Include="..\JamesTools.OcrWorker\JamesTools.OcrWorker.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -32,4 +34,11 @@
     </Content>
   </ItemGroup>
 
+  <Target Name="BuildLiveWorker" AfterTargets="Build">
+    <ItemGroup><LiveWorkerFiles Include="..\JamesTools.OcrWorker\bin\$(Configuration)\net10.0-windows\$(RuntimeIdentifier)\*" /></ItemGroup>
+    <Copy SourceFiles="@(LiveWorkerFiles)" DestinationFolder="$(TargetDir)tools\ocr" />
+  </Target>
+  <Target Name="PublishLiveWorker" AfterTargets="Publish">
+    <MSBuild Projects="..\JamesTools.OcrWorker\JamesTools.OcrWorker.csproj" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)tools\ocr\" />
+  </Target>
 </Project>

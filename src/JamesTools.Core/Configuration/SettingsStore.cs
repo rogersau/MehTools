@@ -46,6 +46,7 @@ public sealed class SettingsStore
     {
         if (settings.SchemaVersion is < 1 or > CurrentSchemaVersion)
             throw new InvalidDataException($"Settings version {settings.SchemaVersion} is not supported.");
+        settings.LiveWardogs ??= new(); settings.LiveWardogs.Normalize();
         settings.SchemaVersion = CurrentSchemaVersion;
         if (!double.IsFinite(settings.LowStorageThresholdGiB) || settings.LowStorageThresholdGiB < 0) settings.LowStorageThresholdGiB = 10;
         if (settings.CleanupSuggestionAgeDays is < 1) settings.CleanupSuggestionAgeDays = null;
