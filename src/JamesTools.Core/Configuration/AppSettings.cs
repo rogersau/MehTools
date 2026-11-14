@@ -4,6 +4,7 @@ namespace JamesTools.Core.Configuration;
 
 public sealed class AppSettings
 {
+    public JamesTools.Core.Diagnostics.DiagnosticOptions Diagnostics { get; set; } = new();
     public LiveWardogsSettings LiveWardogs { get; set; } = new();
     public int SchemaVersion { get; set; } = 2;
     public bool AutomationEnabled { get; set; }
@@ -85,6 +86,7 @@ public sealed class AppSettings
 
     public AppSettings Snapshot() => new()
     {
+        Diagnostics = (Diagnostics ?? new()).Copy(),
         LiveWardogs = (LiveWardogs ?? new()).Copy(),
         SchemaVersion = SchemaVersion,
         NetworkDiagnosticsEnabled = NetworkDiagnosticsEnabled,

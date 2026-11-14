@@ -604,6 +604,17 @@
                                 <CheckBox Content="Include ICMP network diagnostics in explicit logs and benchmarks" IsChecked="{Binding NetworkDiagnosticsEnabled}"/>
                                 <TextBlock Text="Opt-in: enter up to three plain hostnames or IP addresses, one per line. Target names and addresses appear in saved reports. Save settings to apply. No game packet loss or server performance is measured." TextWrapping="Wrap"/>
                                 <TextBox Text="{Binding NetworkTargets, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" Height="65" VerticalScrollBarVisibility="Auto"/>
+                                <Expander Header="Diagnostic sampling and test conditions" Margin="0,12,0,8"><StackPanel Margin="8">
+                                    <CheckBox Content="Faster GPU and system sampling (about 1 second)" IsChecked="{Binding Diagnostics.FastGpuPolling}"/>
+                                    <CheckBox Content="Advanced ETW hard faults (optional; existing privileges required, no elevation prompt)" IsChecked="{Binding Diagnostics.AdvancedHardFaultTracing}"/>
+                                    <TextBlock Text="ETW may be unavailable without privileges; normal recording continues. File paths are never retained." Style="{StaticResource Hint}"/>
+                                    <WrapPanel Margin="0,8,0,8">
+                                        <TextBlock Text="Warm-up (s)" VerticalAlignment="Center"/><TextBox Width="65" Margin="6,0,15,0" Text="{Binding Diagnostics.WarmupSeconds}"/>
+                                        <TextBlock Text="Stutter threshold (ms)" VerticalAlignment="Center"/><TextBox Width="75" Margin="6,0,15,0" Text="{Binding Diagnostics.StutterThresholdMs}"/>
+                                        <TextBlock Text="Target FPS" VerticalAlignment="Center"/><TextBox Width="65" Margin="6,0,0,0" Text="{Binding Diagnostics.TargetFps}"/>
+                                    </WrapPanel>
+                                    <ItemsControl x:Name="DiagnosticConditionsFields"/>
+                                </StackPanel></Expander>
                                 <TextBlock Text="Game settings and test scene (optional)" FontWeight="SemiBold" Margin="0,15,0,6"/>
                                 <TextBox x:Name="PerformanceSetup" AcceptsReturn="True" TextWrapping="Wrap" Height="86" MaxLength="4000" VerticalScrollBarVisibility="Auto"/>
                                 <TextBlock Text="Include resolution/render scale, graphics preset/ray tracing, upscaling/frame generation, refresh rate, VSync/FPS cap, game version and map/scene. Mention OBS or other heavy apps running." Style="{StaticResource Hint}" Margin="0,6,0,0"/>

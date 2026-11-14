@@ -11,6 +11,20 @@ namespace JamesTools.Core.Diagnostics;
 /// <summary>A short-lived, best-effort Windows performance recording.</summary>
 public sealed partial class PerformanceLogger : IAsyncDisposable
 {
+    private readonly DiagnosticOptions _options;
+    private readonly DiagnosticRawWriter _raw;
+    private readonly HardFaultTrace _hardFaults;
+    private readonly ProcessActivity _processActivity = new();
+    private ProcessActivityRate? _io;
+    private readonly Queue<DiagnosticHardwareSample> _hardware = new();
+    private readonly Dictionary<double, List<DiagnosticHardwareSample>> _eventHardware = new();
+    private readonly Dictionary<string, Statistics> _extended = new();
+    private readonly IReadOnlyDictionary<string, string> _topology = CpuTopology.Read();
+    private IReadOnlyDictionary<string, string> _sensorStatus = new Dictionary<string, string>();
+    private double? _previousCpuSeconds, _cpuWindowStartSeconds;
+    private double _collectionTotalMs, _collectionMaxMs;
+    public string? RawDataDirectory => _raw.DirectoryPath;
+    public string? RawExportError => _raw.Error;
     private readonly CancellationTokenSource _stop = new();
     private readonly object _gate = new();
     private readonly string? _executablePath;
@@ -47,14 +61,17 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
     private readonly CancellationTokenRegistration _captureCancellation;
     private string? _frameStatus;
 
-    private PerformanceLogger(string? executablePath, string? presentMonPath, string? frameUnavailableReason, NetworkProbeOptions? networkOptions = null, CancellationToken captureCancellation = default)
+    private PerformanceLogger(string? executablePath, string? presentMonPath, string? frameUnavailableReason, NetworkProbeOptions? networkOptions = null, CancellationToken captureCancellation = default, DiagnosticOptions? options = null)
     {
-        // Validate before starting any owned sampler/process.
+        _options = options?.Copy() ?? new(); _options.Validate();
+                // Validate before starting any owned sampler/process.
         if (networkOptions is not null) networkOptions=NetworkProbeOptions.Create(networkOptions.Enabled,string.Join("\n",networkOptions.Targets));
         _executablePath = string.IsNullOrWhiteSpace(executablePath) ? null : Path.GetFullPath(executablePath);
+        _raw = new DiagnosticRawWriter();
+        _hardFaults = new HardFaultTrace(_options.AdvancedHardFaultTracing, _elapsed, _raw.Fault);
         if (!string.IsNullOrWhiteSpace(presentMonPath) && !string.IsNullOrWhiteSpace(_executablePath))
         {
-            try { _frames = new FrameReportCollector(presentMonPath, _executablePath, _elapsed); _frameStatus = "PresentMon capture requested."; }
+            try { _frames = new FrameReportCollector(presentMonPath, _executablePath, _elapsed, _options, _raw.Frame); _frameStatus = "PresentMon capture requested."; }
             catch (Exception ex) { _frameStatus = "PresentMon unavailable (" + ex.GetType().Name + ")."; }
         }
         else _frameStatus = _executablePath is null
@@ -76,7 +93,7 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
         string? frameUnavailableReason, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new PerformanceLogger(executablePath, presentMonPath, frameUnavailableReason));
+        return Task.FromResult(new PerformanceLogger(executablePath, presentMonPath, frameUnavailableReason, captureCancellation: cancellationToken));
     }
 
     public static Task<PerformanceLogger> StartAsync(string? executablePath, string? presentMonPath,
@@ -86,13 +103,21 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
         return Task.FromResult(new PerformanceLogger(executablePath, presentMonPath, frameUnavailableReason, networkOptions, cancellationToken));
     }
 
+    public static Task<PerformanceLogger> StartAsync(string? executablePath, string? presentMonPath,
+        string? frameUnavailableReason, NetworkProbeOptions networkOptions, DiagnosticOptions options, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        options.Validate();
+        return Task.FromResult(new PerformanceLogger(executablePath, presentMonPath, frameUnavailableReason, networkOptions, cancellationToken, options));
+    }
+
     public void AddMarker(string? note = null)
     {
         lock (_gate)
         {
             var text = string.IsNullOrWhiteSpace(note) ? "Marker" : note.Trim();
             if (text.Length > 200) text = text[..200];
-            _markers.Add((_elapsed.Elapsed, text, _lastContext));
+            if (_markers.Count < 10000 && _completion is null) _markers.Add((_elapsed.Elapsed, text.Replace("\r", " ").Replace("\n", " "), _lastContext));
         }
     }
 
@@ -123,6 +148,7 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
     private async Task<string> StopCoreAsync()
     {
         _elapsed.Stop();
+        _hardFaults.EndAt(_elapsed.Elapsed.TotalSeconds);
         _frames?.CompleteCapture();
         _stop.Cancel();
         try { await _sampling.ConfigureAwait(false); }
@@ -133,8 +159,11 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
             var remaining = _frames.TakeInterval();
             if (remaining.Count > 0) AddTimeline(DiagnosticRow.ForFrames(remaining));
         }
+        await _hardFaults.DisposeAsync().ConfigureAwait(false);
         if (_network is not null) await _network.DisposeAsync().ConfigureAwait(false);
         var report = BuildReport();
+        _raw.Finish(report, BuildMachineSummaryJson(_frames?.GetSummary(), _frames?.GetDiagnostics(), BuildInvestigations(_frames?.GetDiagnostics())), _markers.Select(m => new ReportMarker(m.Offset.TotalSeconds, m.Note)).ToArray());
+        if (_raw.Error is { } rawError) report += "\nRaw export incomplete: " + rawError + ". Saved report summary remains available.\n";
         _frames?.Dispose();
         _captureCancellation.Dispose();
         _stop.Dispose();
@@ -146,18 +175,24 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
         try
         {
             using var counters = new DiagnosticCounters();
+            using var nvidia = new NvidiaTelemetry();
             var nextGpuSample = TimeSpan.Zero;
             while (true)
             {
                 _stop.Token.ThrowIfCancellationRequested();
                 foreach (var stats in SampleStatistics()) stats.ClearCurrent();
                 var offset = _elapsed.Elapsed.TotalSeconds;
+                var collectionWatch = Stopwatch.StartNew();
+                var values = new Dictionary<string, double?>();
+                double? gpuStart = null, gpuEnd = null;
                 SampleWindows();
-                var extra = counters.Sample();
+                _hardFaults.SetTargets(_previousProcesses);
+                var extra = counters.Sample(offset);
                 foreach (var core in extra.Cores)
                 {
                     if (!_cores.TryGetValue(core.Name, out var stats)) _cores[core.Name] = stats = new Statistics();
                     stats.Add(core.Percent);
+                    values["cpuUtilizationPercent:" + core.Name] = core.Percent;
                 }
                 if (extra.Cores.Count > 0) _busiestCore.Add(extra.Cores.Max(c => c.Percent));
                 _pagesInput.Add(extra.PagesInputPerSecond);
@@ -167,12 +202,67 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
                 var commit = DiagnosticCounters.ReadCommit();
                 _commitUsed.Add(commit.UsedMiB);
                 _commitLimit.Add(commit.LimitMiB);
+                var processGpu = counters.ProcessGpuMemory(_previousProcesses.Keys.ToHashSet());
+                values["gameDedicatedGpuMiB"] = processGpu.DedicatedMiB;
+                values["gameSharedGpuMiB"] = processGpu.SharedMiB;
+                foreach (var frequency in counters.Frequencies) values["cpuFrequencyMHz:" + frequency.Key] = frequency.Value;
                 _samples++;
                 if (_elapsed.Elapsed >= nextGpuSample)
                 {
-                    nextGpuSample = _elapsed.Elapsed + TimeSpan.FromSeconds(6);
-                    await SampleNvidiaAsync(_stop.Token).ConfigureAwait(false);
+                    nextGpuSample = _elapsed.Elapsed + TimeSpan.FromSeconds(_options.FastGpuPolling ? 1 : 6);
+                    gpuStart = _elapsed.Elapsed.TotalSeconds;
+                    if (nvidia.Available)
+                    {
+                        _gpuAttempts++;
+                        var readings = nvidia.Sample();
+                        foreach (var reading in readings) values[reading.Key] = reading.Value;
+                        _gpuName = nvidia.Name; _driverVersion = nvidia.Driver;
+                        _gpu.Add(readings.GetValueOrDefault("gpuPercent")); _vramUsed.Add(readings.GetValueOrDefault("vramUsedMiB"));
+                        _gpuPower.Add(readings.GetValueOrDefault("gpuPowerW")); _gpuTemperature.Add(readings.GetValueOrDefault("gpuTemperatureC"));
+                        _gpuClock.Add(readings.GetValueOrDefault("gpuClockMHz")); _gpuPowerLimit.Add(readings.GetValueOrDefault("gpuPowerLimitW"));
+                        _vramTotal = readings.GetValueOrDefault("vramCapacityMiB");
+                        _sensorStatus = new Dictionary<string, string>(nvidia.Status);
+                        if (_gpu.Current is null) _gpuFailures++;
+                        _gpuStatus = "Direct NVML; individual sensors validated at runtime.";
+                    }
+                    else if (!_options.FastGpuPolling) await SampleNvidiaAsync(_stop.Token).ConfigureAwait(false);
+                    else _gpuStatus = "Fast sampling unavailable: NVML could not initialise. Use normal mode for nvidia-smi fallback.";
+                    gpuEnd = _elapsed.Elapsed.TotalSeconds;
                 }
+                values["cpuPercent"] = _cpu.Current; values["busiestCpuPercent"] = _busiestCore.Current;
+                values["ramAvailableMiB"] = _memoryAvailable.Current; values["ramUsedMiB"] = _memoryUsed.Current;
+                values["commitUsedMiB"] = _commitUsed.Current; values["commitLimitMiB"] = _commitLimit.Current;
+                values["gameCpuPercent"] = _gameCpu.Current; values["gameWorkingSetMiB"] = _gameMemory.Current;
+                values["gamePrivateMiB"] = _gamePrivate.Current;
+                values["processReadMiBps"] = _io?.ReadMiBps; values["processWriteMiBps"] = _io?.WriteMiBps;
+                values["processReadOpsPerSecond"] = _io?.ReadOperationsPerSecond; values["processWriteOpsPerSecond"] = _io?.WriteOperationsPerSecond;
+                values["processPageFaultsPerSecond"] = _io?.PageFaultsPerSecond;
+                values["pagesInputPerSecond"] = _pagesInput.Current; values["diskReadMiBps"] = _diskRead.Current; values["diskWriteMiBps"] = _diskWrite.Current;
+                values["diskLatencyMs"] = _diskLatency.Current;
+                if (gpuStart is not null)
+                {
+                    values["gpuPercent"] = _gpu.Current; values["vramUsedMiB"] = _vramUsed.Current;
+                    values["gpuPowerW"] = _gpuPower.Current; values["gpuTemperatureC"] = _gpuTemperature.Current;
+                    values["gpuClockMHz"] = _gpuClock.Current; values["gpuPowerLimitW"] = _gpuPowerLimit.Current;
+                }
+                foreach (var value in values)
+                {
+                    if (!_extended.TryGetValue(value.Key, out var stats)) _extended[value.Key] = stats = new();
+                    stats.Add(value.Value);
+                }
+                var sample = new DiagnosticHardwareSample(offset, _elapsed.Elapsed.TotalSeconds, counters.WindowStartSeconds ?? offset, _io?.StartSeconds, gpuStart, gpuEnd, values) { CpuWindowStartSeconds = _cpuWindowStartSeconds, ProcessWindowEndSeconds = _io?.EndSeconds };
+                if (_hardware.Count == TimelineLimit) _hardware.Dequeue();
+                _hardware.Enqueue(sample); _raw.Hardware(sample);
+                var eventOffsets = _frames?.EventOffsets() ?? [];
+                foreach (var expired in _eventHardware.Keys.Except(eventOffsets).ToArray()) _eventHardware.Remove(expired);
+                foreach (var eventOffset in eventOffsets)
+                {
+                    if (!_eventHardware.TryGetValue(eventOffset, out var context))
+                        _eventHardware[eventOffset] = context = _hardware.Where(h => h.CollectionEndSeconds >= eventOffset - 5 && h.CounterWindowStartSeconds <= eventOffset + 5).ToList();
+                    else if (sample.CollectionEndSeconds >= eventOffset - 5 && sample.CounterWindowStartSeconds <= eventOffset + 5 && context.Count < 32) context.Add(sample);
+                }
+                collectionWatch.Stop(); _collectionTotalMs += collectionWatch.Elapsed.TotalMilliseconds;
+                _collectionMaxMs = Math.Max(_collectionMaxMs, collectionWatch.Elapsed.TotalMilliseconds);
                 var frames = _frames?.TakeInterval();
                 AddTimeline(new DiagnosticRow(offset, _elapsed.Elapsed.TotalSeconds, _cpu.Current, _busiestCore.Current,
                     _memoryAvailable.Current, _memoryUsed.Current, _commitUsed.Current, _commitLimit.Current, _gameCpu.Current,
@@ -181,7 +271,7 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
                     _diskRead.Current, _diskWrite.Current, _diskLatency.Current, frames));
                 lock (_gate) _lastContext = string.Create(CultureInfo.InvariantCulture,
                     $"last sample at {offset:F1}s; CPU {_cpu.LastValueText("%")}; Mem used {_memoryUsed.LastValueText("MiB")}; GPU {_gpu.LastValueText("%")}");
-                await Task.Delay(TimeSpan.FromSeconds(2), _stop.Token).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(_options.FastGpuPolling ? 1 : 2), _stop.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
@@ -208,6 +298,8 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
                 var total = (current.Kernel - previous.Kernel) + (current.User - previous.User);
                 if (total > 0) _cpu.Add(Math.Clamp(100.0 * (1.0 - (double)(current.Idle - previous.Idle) / total), 0, 100));
             }
+            _cpuWindowStartSeconds = _previousCpuSeconds;
+            _previousCpuSeconds = _elapsed.Elapsed.TotalSeconds;
             _previousCpu = current;
         }
 
@@ -228,6 +320,7 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
         var current = new Dictionary<int, (long Start, TimeSpan Cpu)>();
         double memory = 0, privateMemory = 0, cpuMilliseconds = 0;
         int matched = 0, comparable = 0;
+        var activity = new List<ProcessActivityCounters>();
         Process[] processes;
         try { processes = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(_executablePath!)); }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or ArgumentException) { return; }
@@ -246,6 +339,8 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
                     memory += workingSet;
                     privateMemory += privateBytes;
                     matched++;
+                    try { activity.Add(ProcessActivity.Read(process, start, now.TotalSeconds)); }
+                    catch (Exception ex) when (ex is Win32Exception or InvalidOperationException) { activity.Add(new(process.Id, start, now.TotalSeconds, null, null, null, null, null)); }
                     if (_previousProcesses.TryGetValue(process.Id, out var prior) && prior.Start == start && cpu >= prior.Cpu)
                     {
                         cpuMilliseconds += (cpu - prior.Cpu).TotalMilliseconds;
@@ -255,6 +350,7 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
                 catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException) { }
             }
         }
+        _io = _processActivity.Update(activity, now.TotalSeconds);
         _processMatches = matched;
         if (matched > 0) { _gameMemory.Add(memory); _gamePrivate.Add(privateMemory); }
         if (comparable > 0 && _previousProcessTime is { } last && (now - last).TotalMilliseconds > 0)

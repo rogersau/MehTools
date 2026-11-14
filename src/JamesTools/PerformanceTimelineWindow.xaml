@@ -30,6 +30,13 @@
         </StackPanel>
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
             <StackPanel>
+                <StackPanel x:Name="StutterPanel" Margin="0,0,0,12">
+                    <TextBlock Text="Worst stutters - select an event to inspect the surrounding five seconds" FontWeight="SemiBold"/>
+                    <ComboBox x:Name="StutterList" DisplayMemberPath="Display" SelectionChanged="StutterList_SelectionChanged" Margin="0,6,0,6"/>
+                    <TextBlock x:Name="StutterText" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <Canvas x:Name="StutterPlot" Height="180" Background="#202B30" SizeChanged="Plot_SizeChanged"/>
+                    <DataGrid x:Name="StutterHardware" Height="160" IsReadOnly="True" AutoGenerateColumns="True" CanUserAddRows="False"/>
+                </StackPanel>
                 <StackPanel x:Name="NetworkPanel">
                 <TextBlock Text="ICMP network observations · retained samples, no interpolation" FontWeight="SemiBold"/>
                 <ComboBox x:Name="NetworkTarget" SelectionChanged="NetworkTarget_SelectionChanged"/>

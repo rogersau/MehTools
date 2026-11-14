@@ -6,6 +6,7 @@ using JamesTools.Core.Platform;
 using JamesTools.Core.Recording;
 
 if (args.Length == 2 && args[0].EndsWith(".fake.dll")) return await LiveWorkerTests.Child(args[0]);
+if (args.Contains("--diagnostic-benchmark")) { AdvancedDiagnosticTests.Benchmark(); return 0; }
 if (args.Contains("--wardogs-montage-integration")) await WardogsExportTests.Integration();
 if (args.Contains("--media-integration")) await MediaTests.Integration();
 var wardogsIntegration = Array.IndexOf(args, "--wardogs-integration");
@@ -13,6 +14,11 @@ if (wardogsIntegration >= 0) await WardogsTests.Integration(args.ElementAtOrDefa
 if (args.Length >= 5 && args[0] == "--live-replay") await LiveWardogsTests.Replay(args[1], args[2], args[3], args.Skip(4).ToArray());
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("diagnostic frame fields, QPC alignment, warm-up and restart isolation", AdvancedDiagnosticTests.Frames),
+    ("diagnostic rolling FPS, variability, stutter clusters and bounded context", AdvancedDiagnosticTests.Pacing),
+    ("diagnostic process attribution, local exports and unprivileged fallback", AdvancedDiagnosticTests.StorageAndAttribution),
+    ("diagnostic independent NVML sensors, transient failures and recovery", AdvancedDiagnosticTests.SensorFailures),
+    ("diagnostic comparisons, exposure, cautious wording and legacy reports", AdvancedDiagnosticTests.Comparisons),
     ("live capture lifecycle and explicit-run cleanup", LiveCaptureTests.Run),
     ("WARDOGS owned worker startup, timeout, exit and cancellation", LiveWorkerTests.Run),
     ("WARDOGS live resets, stale frames, gating, assists and failures", LiveWardogsSequenceTests.Run),
@@ -125,7 +131,7 @@ internal static class Tests
         var summaryStart = report.IndexOf("```json", StringComparison.Ordinal) + 7;
         var summaryEnd = report.IndexOf("```", summaryStart, StringComparison.Ordinal);
         using var summary = System.Text.Json.JsonDocument.Parse(report[summaryStart..summaryEnd]);
-        Assert(summary.RootElement.GetProperty("schemaVersion").GetInt32() == 2 && summary.RootElement.GetProperty("fpsAvg").ValueKind == System.Text.Json.JsonValueKind.Null,
+        Assert(summary.RootElement.GetProperty("schemaVersion").GetInt32() == 3 && summary.RootElement.GetProperty("fpsAvg").ValueKind == System.Text.Json.JsonValueKind.Null,
             "summary version or unavailable frame metric incorrect");
         Assert(summary.RootElement.GetProperty("timelineRows").GetInt32() > 0, "timeline has no real sample rows");
         Assert(!report.Contains(executable, StringComparison.OrdinalIgnoreCase), "full executable path leaked into report");

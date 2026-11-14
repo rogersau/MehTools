@@ -71,6 +71,10 @@ internal static class UiAudit
             ("configuration", new ConfigurationSnapshotsWindow(new ConfigSnapshotStore(data), game, (_,_) => { })),
             ("history", new PerformanceHistoryWindow(new PerformanceHistoryStore(data), game.ExecutablePath, game.Name, [], (_,_) => { })),
             ("profiles", new GameProfilesEditorWindow([new GameProfile { Name = "Balanced" }], [], [game])),
+            ("stutter", new PerformanceTimelineWindow(new ParsedPerformanceReport(new(3, 30, "1000/meanFrameMs", 60, 16.7, 40, 65, 4096, 1, 60, null, "Synthetic scene", "Hitch"), [new(0, 1, 40, 65, 4096, 0, 1, 0, 1, 0, 1, "test", 60, 60, 20, 0)], []) {
+                Investigations = [StutterInvestigator.Create([new FrameTelemetry(1, 2, "QPC", "7:A", 100, 80, 20, 10, 1, 11, 1, 12, 13, 0, "Independent Flip", "Application")],
+                    [new DiagnosticHardwareSample(0, 2, 0, 0, null, null, new Dictionary<string, double?> { ["gpuPercent"] = null, ["processReadMiBps"] = 4 })], [], [new(1, "Noticed hitch")])]
+            }, "Synthetic spike")),
             ("timeline", new PerformanceTimelineWindow(new ParsedPerformanceReport(new(2, 30, "Synthetic", 60, 16.7, 40, 65, 4096, 1, 60, null, "Synthetic scene", "Test marker"), [new(0, 1, 40, 65, 4096, 0, 1, 0, 1, 0, 1, "test", 60, 60, 20, 0)], [new(1, "Synthetic stutter")]), "Synthetic report")),
             ("playback", new RecordingPlaybackWindow(Path.Combine(data, "synthetic-not-opened.mkv"), TimeSpan.Zero)),
             ("live", new LiveWardogsWindow(new(), _ => { }))

@@ -99,7 +99,7 @@ public sealed class PerformanceHistoryStore
                 var bytes = Read(path); hash = Convert.ToHexString(SHA256.HashData(bytes));
                 var text=new UTF8Encoding(false,true).GetString(bytes);
                 summary = ReportTimeline.ReadSummary(text);
-                status = summary.SchemaVersion == 2 && ReportTimeline.TryParse(text,out _,out _) ? "Indexed" : "Unsupported or incomplete report format";
+                status = summary.SchemaVersion is 2 or 3 && ReportTimeline.TryParse(text,out _,out _) ? "Indexed" : "Unsupported or incomplete report format";
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DecoderFallbackException) { status = ex.Message; }
             return new HistoryReport(Guid.NewGuid(), Key(game), path, reference, observed, hash, summary, status, PreviousVersion: previous);
@@ -117,7 +117,7 @@ public sealed class PerformanceHistoryStore
         try { return report.Fingerprint == Convert.ToHexString(SHA256.HashData(Read(report.Path))) ? report.IndexStatus == "Indexed" ? "Verified" : report.IndexStatus : "Changed content — reindex explicitly"; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return "Missing/unreadable: " + ex.Message; }
     });
-    public static bool FrameValid(ReportMachineSummary s) => s.SchemaVersion == 2 && s.DurationSeconds is >0 && double.IsFinite(s.DurationSeconds.Value) && s.FrameCount > 0 && s.FrameStreamCount == 1 && !string.IsNullOrWhiteSpace(s.FrameStream) && s.FpsMethod == "1000/meanFrameMs" && s.FrameMsAverage is > 0 && double.IsFinite(s.FrameMsAverage.Value);
+    public static bool FrameValid(ReportMachineSummary s) => s.SchemaVersion is 2 or 3 && s.DurationSeconds is >0 && double.IsFinite(s.DurationSeconds.Value) && s.FrameCount > 0 && s.FrameStreamCount == 1 && !string.IsNullOrWhiteSpace(s.FrameStream) && s.FpsMethod == "1000/meanFrameMs" && s.FrameMsAverage is > 0 && double.IsFinite(s.FrameMsAverage.Value);
     public static bool Compatible(ReportMachineSummary a, ReportMachineSummary b) => FrameValid(a) && FrameValid(b) && a.FpsMethod == b.FpsMethod && a.NetworkConfiguration == b.NetworkConfiguration;
     public static double? Difference(double? value, double? baseline) => value is double v && baseline is double b && double.IsFinite(v) && double.IsFinite(b) ? v - b : null;
     public static double? Percent(double? value, double? baseline) => baseline is > 0 && Difference(value, baseline) is double d ? d / baseline.Value * 100 : null;

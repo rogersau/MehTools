@@ -23,6 +23,7 @@ internal static class Program
                 if (!closed) throw new Exception("Idle review did not close");
                 Console.WriteLine("PASS review closes without re-entering Closing");
                 await UiAudit.Run(data, args);
+                if (args.Contains("--presentmon-integration")) await DiagnosticIntegration.Run();
                 if (errors.Count > 0) throw new AggregateException("UI audit raised dispatcher exceptions", errors);
             }
             catch (Exception ex) { Console.Error.WriteLine(ex); result = 1; }

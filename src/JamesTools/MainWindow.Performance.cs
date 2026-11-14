@@ -25,6 +25,22 @@ public partial class MainWindow
     private Guid? _performanceDiagnosticSessionId;
     private string? _baselineReportPath;
     private string? _performanceTargetNotice;
+    private string? _performanceRawDirectory;
+
+    private void InitializeDiagnosticConditions()
+    {
+        var fields = new List<System.Windows.Controls.StackPanel>();
+        foreach (var property in typeof(RecordingConditions).GetProperties())
+        {
+            var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(0, 3, 0, 3) };
+            var label = System.Text.RegularExpressions.Regex.Replace(property.Name, "([a-z])([A-Z])", "$1 $2");
+            panel.Children.Add(new System.Windows.Controls.TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 3) });
+            var box = new System.Windows.Controls.TextBox { MaxLength = 2000 };
+            box.SetBinding(System.Windows.Controls.TextBox.TextProperty, new System.Windows.Data.Binding("Diagnostics.Conditions." + property.Name) { UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged });
+            panel.Children.Add(box); fields.Add(panel);
+        }
+        DiagnosticConditionsFields.ItemsSource = fields;
+    }
 
     private async void StartPerformance_Click(object sender, RoutedEventArgs e)
     {
@@ -65,7 +81,8 @@ public partial class MainWindow
             }
             _performanceLogger = await PerformanceLogger.StartAsync(targetPath, presentMon,
                 targetPath is null && game is not null ? _performanceTargetNotice : null,
-                NetworkProbeOptions.Create(_appliedSettings.NetworkDiagnosticsEnabled, _appliedSettings.NetworkTargets));
+                NetworkProbeOptions.Create(_appliedSettings.NetworkDiagnosticsEnabled, _appliedSettings.NetworkTargets),
+                _settings.Diagnostics);
             _performanceSessionId = null;
             _performanceDiagnosticSessionId = null;
             if (_sessionStore is not null)
@@ -87,6 +104,7 @@ public partial class MainWindow
                 catch (Exception ex) { SessionsStatus.Text = "Session association unavailable: " + ex.Message; }
             }
             SetPerformanceContext();
+            _performanceRawDirectory = _performanceLogger.RawDataDirectory;
             _performanceReport = null;
             _performanceReportSaved = true;
             SavePerformanceButton.IsEnabled = false;
@@ -143,7 +161,7 @@ public partial class MainWindow
             StartPerformanceButton.IsEnabled = true;
             PerformanceGame.IsEnabled = true;
             AddMarkerButton.IsEnabled = false;
-            PerformanceStatus.Text = "Report ready. Click Save.";
+            PerformanceStatus.Text = "Report ready. Click Save. Raw recording: " + (_performanceRawDirectory ?? "Unavailable");
             var saved = !save || SavePerformanceReport();
             if (!string.IsNullOrWhiteSpace(_baselineReportPath) && File.Exists(_baselineReportPath) &&
                 MessageBox.Show(this, "The retest report is ready. Compare it with the selected baseline now?", "Baseline retest", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
@@ -172,7 +190,7 @@ public partial class MainWindow
         {
             File.WriteAllText(picker.FileName, _performanceReport, new UTF8Encoding(false));
             _performanceReportSaved = true;
-            PerformanceStatus.Text = "Report saved. You can open it or share it for help.";
+            PerformanceStatus.Text = "Report saved. Raw recording: " + (_performanceRawDirectory ?? "Unavailable");
             AddSessionAttachment(_performanceSessionId, SessionAttachmentKind.PerformanceReport, picker.FileName,
                 "Unassigned diagnostic report");
             return true;
@@ -330,84 +348,7 @@ public partial class MainWindow
 
     private static string BuildComparison(string a, string b, string nameA, string nameB)
     {
-        var ja = ExtractMachineSummary(a);
-        var jb = ExtractMachineSummary(b);
-        var sb = new StringBuilder();
-        sb.AppendLine("# Performance report comparison");
-        sb.AppendLine($"- Baseline: {nameA}");
-        sb.AppendLine($"- Comparison: {nameB}");
-        sb.AppendLine($"- Source: {(ja is not null && jb is not null ? "machine summary (JSON)" : "parsed report text")}");
-        sb.AppendLine().AppendLine("## Metric deltas (comparison - baseline, averages where available)");
-        var summaryA = ReportTimeline.ReadSummary(a);
-        var summaryB = ReportTimeline.ReadSummary(b);
-        var compatibility = ReportComparison.Assess(summaryA, summaryB);
-        sb.AppendLine($"- Baseline duration / start: {summaryA.DurationSeconds?.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) ?? "unavailable"} s / {summaryA.StartedUtc ?? "unavailable"}; frame capture: {(summaryA.FrameCount is > 0 ? summaryA.FrameCount + " frames" : "unavailable")}");
-        sb.AppendLine($"- Retest duration / start: {summaryB.DurationSeconds?.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) ?? "unavailable"} s / {summaryB.StartedUtc ?? "unavailable"}; frame capture: {(summaryB.FrameCount is > 0 ? summaryB.FrameCount + " frames" : "unavailable")}");
-        sb.AppendLine($"- Baseline scene/settings: {summaryA.Context ?? "unavailable"}");
-        sb.AppendLine($"- Retest scene/settings: {summaryB.Context ?? "unavailable"}");
-        sb.AppendLine($"- Baseline symptoms / retest change: {summaryA.Symptoms ?? "unavailable"}");
-        sb.AppendLine($"- Retest symptoms / changed setting: {summaryB.Symptoms ?? "unavailable"}");
-        if (!compatibility.WorkloadContextMatches) sb.AppendLine("- Workload/context differs or is incomplete; metric changes cannot establish an improvement.");
-        void Row(string label, string jsonKey, string textKey)
-        {
-            var va = ja is not null ? GetJsonDouble(ja, jsonKey) : ExtractAvg(a, textKey);
-            var vb = jb is not null ? GetJsonDouble(jb, jsonKey) : ExtractAvg(b, textKey);
-            if (va is double da && vb is double db)
-                sb.AppendLine($"- {label}: {da:F2} -> {db:F2} (Δ {db - da:+0.00;-0.00;0.00})");
-            else if (va is not null || vb is not null)
-                sb.AppendLine($"- {label}: {(va?.ToString("F2") ?? "n/a")} -> {(vb?.ToString("F2") ?? "n/a")}");
-        }
-        Row("Total CPU (%)", "cpuAvg", "Total CPU:");
-        Row("Physical memory used (MiB)", "memUsedAvgMiB", "Physical memory used:");
-        Row("GPU utilization (%)", "gpuAvg", "GPU utilization:");
-        Row("GPU power (W)", "gpuPowerAvgW", "GPU power:");
-        Row("GPU temperature (°C)", "gpuTempAvgC", "GPU temperature:");
-        Row("Selected process CPU (%)", "gameCpuAvg", "Selected processes CPU");
-        Row("Selected process memory (MiB)", "gameMemAvgMiB", "Selected processes working set:");
-        Row("Selected process private allocation (MiB)", "gamePrivateAvgMiB", "Selected processes private bytes:");
-        if (compatibility.FpsMethodsCompatible) Row("FPS", "fpsAvg", "FPS (from frame intervals):");
-        else sb.AppendLine($"- FPS: not compared because averaging methods differ ({compatibility.BaselineFpsMethod} versus {compatibility.RetestFpsMethod}).");
-        Row("Frame time (ms)", "frameMsAvg", "Frame time:");
-        Row("P99 frame time (ms)", "frameP99Ms", "No legacy P99 metric");
-        Row("Display latency (ms)", "displayLatencyAvgMs", "Display latency (PresentMon):");
-        sb.AppendLine().AppendLine("## Notes");
-        sb.AppendLine("- Deltas are computed from reported average values when present (preferring embedded machine summaries). Different workloads, durations, or missing measurements can make comparisons misleading.");
-        sb.AppendLine("- Format-2 frame summaries select the presentation stream with most frames. Older reports combined streams; check capture context before interpreting frame-time changes.");
-        return sb.ToString();
+        return DiagnosticComparison.Build(a, b, nameA, nameB);
     }
 
-    private static System.Text.Json.JsonElement? ExtractMachineSummary(string text)
-    {
-        const string marker = "## Machine summary (JSON)";
-        var i = text.IndexOf(marker, StringComparison.Ordinal);
-        if (i < 0) return null;
-        var start = text.IndexOf("```json", i, StringComparison.OrdinalIgnoreCase);
-        var end = start >= 0 ? text.IndexOf("```", start + 7, StringComparison.Ordinal) : -1;
-        if (start < 0 || end < 0) return null;
-        var json = text[(start + 7)..end].Trim();
-        try { using var doc = System.Text.Json.JsonDocument.Parse(json); return doc.RootElement.Clone(); } catch { return null; }
-    }
-
-    private static double? GetJsonDouble(System.Text.Json.JsonElement? root, string name)
-    {
-        if (root is not { } r || !r.TryGetProperty(name, out var p)) return null;
-        if (p.ValueKind == System.Text.Json.JsonValueKind.Number && p.TryGetDouble(out var d)) return d;
-        return null;
-    }
-
-    private static double? ExtractAvg(string text, string key)
-    {
-        var i = text.IndexOf(key, StringComparison.OrdinalIgnoreCase);
-        if (i < 0) return null;
-        var lineEnd = text.IndexOfAny(new[] { '\r', '\n' }, i);
-        var line = lineEnd < 0 ? text[i..] : text[i..lineEnd];
-        // format: label: min / avg / max unit (n readings)
-        var parts = line.Split('/');
-        if (parts.Length < 2) return null;
-        var avgPart = parts[1].Trim();
-        var num = new string(avgPart.TakeWhile(c => char.IsDigit(c) || c == '.' || c == '-' || c == ',').ToArray());
-        if (double.TryParse(num, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v)) return v;
-        if (double.TryParse(num.Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v)) return v;
-        return null;
-    }
 }

@@ -156,7 +156,7 @@ public static class BenchmarkResults
     {
         static string V(double? n) => n?.ToString("0.##") ?? "unavailable";
         var lines = set.Runs.Select(r => $"Run {r.Index}: {r.Status} {r.Reason}\n  {r.ActualSeconds:0.##}s; FPS {V(r.Summary?.FpsAverage)}, frame ms {V(r.Summary?.FrameMsAverage)}, CPU {V(r.Summary?.CpuAverage)}%, GPU {V(r.Summary?.GpuAverage)}%, RAM {V(r.Summary?.MemoryAverageMiB)} MiB; samples {r.Summary?.SystemSampleCount}, frames {r.Summary?.FrameCount}\n  {r.ReportPath}").ToList();
-        var completed = set.Runs.Where(r => r.Status == "Completed" && r.Summary?.SchemaVersion == 2 &&
+        var completed = set.Runs.Where(r => r.Status == "Completed" && r.Summary?.SchemaVersion is 2 or 3 &&
             r.Summary.DurationSeconds is double duration && double.IsFinite(duration) && Math.Abs(duration-set.Recipe.CaptureSeconds) <= 3).ToArray();
         if (completed.Select(r => r.Summary!.NetworkConfiguration).Distinct(StringComparer.Ordinal).Count() > 1)
         {

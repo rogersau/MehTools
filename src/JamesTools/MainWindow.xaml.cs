@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeDiagnosticConditions();
         _store = new SettingsStore(_dataDirectory);
         string? initialMessage = null;
         try

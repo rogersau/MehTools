@@ -40,7 +40,7 @@ internal static class ReportTimelineTests
             ReportTimeline.Analyze(overlapReport!, 0, 6).Limitations.Any(x => x.Contains("overlapping frame window")),
             "overlapping windows were not omitted and disclosed");
         Assert(!ReportTimeline.TryParse("# Legacy report\n## Measurements\n- CPU: 1 / 2 / 3", out _, out var legacyError) && legacyError.Contains("no supported sample timeline"), "legacy report did not fail gracefully");
-        Assert(!ReportTimeline.TryParse(text.Replace("Report format: 2", "Report format: 3", StringComparison.Ordinal), out _, out var unsupportedError) && unsupportedError.Contains("not supported"), "unsupported timeline version did not fail gracefully");
+        Assert(!ReportTimeline.TryParse(text.Replace("Report format: 2", "Report format: 99", StringComparison.Ordinal), out _, out var unsupportedError) && unsupportedError.Contains("not supported"), "unsupported timeline version did not fail gracefully");
         Assert(ReportTimeline.TryParse(Fixture("\"stream,one\"", "\"stream,two\""), out var streams, out _), "different stream fixture rejected");
         Assert(ReportTimeline.Analyze(streams!, 0, 6).Limitations.Any(x => x.Contains("incomparable stream IDs")), "multiple stream IDs were combined without a limitation");
         Assert(ReportTimeline.Analyze(streams!, 0, 6).AverageFrameTimeMs is null, "incomparable streams produced a combined frame time");

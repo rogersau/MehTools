@@ -10,32 +10,7 @@ namespace JamesTools.Core.Diagnostics;
 public sealed class LiveHardwareSampler : IDisposable
 {
     private (ulong Idle, ulong Kernel, ulong User)? _previous;
-    private IntPtr _library, _device;
-    private NvmlShutdown? _shutdown;
-    private NvmlUtilization? _utilization;
-
-    public LiveHardwareSampler()
-    {
-        var paths = new[] { Path.Combine(Environment.SystemDirectory, "nvml.dll"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "NVIDIA Corporation", "NVSMI", "nvml.dll") };
-        foreach (var path in paths)
-        {
-            try { if (NativeLibrary.TryLoad(path, out _library)) break; }
-            catch (Exception ex) when (ex is BadImageFormatException or DllNotFoundException or FileLoadException) { }
-        }
-        if (_library == IntPtr.Zero) return;
-        try
-        {
-            var init = Get<NvmlInit>("nvmlInit_v2");
-            _shutdown = Get<NvmlShutdown>("nvmlShutdown");
-            var device = Get<NvmlDevice>("nvmlDeviceGetHandleByIndex_v2");
-            _utilization = Get<NvmlUtilization>("nvmlDeviceGetUtilizationRates");
-            if (init() != 0) { _shutdown = null; return; }
-            if (device(0, out _device) != 0) _device = IntPtr.Zero;
-        }
-        catch (Exception ex) when (ex is EntryPointNotFoundException or ArgumentException) { _utilization = null; }
-    }
-
-    private T Get<T>(string name) where T : Delegate => Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(_library, name));
+    private readonly NvidiaTelemetry _nvidia = new();
 
     public (double? Cpu, double? Gpu) Sample()
     {
@@ -50,27 +25,16 @@ public sealed class LiveHardwareSampler : IDisposable
             }
             _previous = now;
         }
-        if (_device != IntPtr.Zero && _utilization is not null && _utilization(_device, out var rates) == 0 && rates.Gpu <= 100) gpu = rates.Gpu;
+        gpu = _nvidia.SampleUtilization();
         return (cpu, gpu);
     }
 
-    public void Dispose()
-    {
-        _shutdown?.Invoke();
-        _shutdown = null;
-        if (_library != IntPtr.Zero) NativeLibrary.Free(_library);
-        _library = IntPtr.Zero;
-        _device = IntPtr.Zero;
-    }
+    public void Dispose() => _nvidia.Dispose();
 
     private static ulong ToUInt64(System.Runtime.InteropServices.ComTypes.FILETIME value) => ((ulong)(uint)value.dwHighDateTime << 32) | (uint)value.dwLowDateTime;
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetSystemTimes(out System.Runtime.InteropServices.ComTypes.FILETIME idle, out System.Runtime.InteropServices.ComTypes.FILETIME kernel, out System.Runtime.InteropServices.ComTypes.FILETIME user);
-    [StructLayout(LayoutKind.Sequential)] private struct Utilization { public uint Gpu, Memory; }
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvmlInit();
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvmlShutdown();
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvmlDevice(uint index, out IntPtr device);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int NvmlUtilization(IntPtr device, out Utilization utilization);
+
 }
 
 /// <summary>Reads a private PresentMon CSV stream without retaining a frame history.</summary>

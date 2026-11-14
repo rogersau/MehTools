@@ -48,7 +48,7 @@ public partial class MainWindow
                 if (session == null && _sessionStore != null) { diagnostic = _sessionStore.Create(game.Name + " (benchmark diagnostic)", recipe.GameKey, DateTime.UtcNow).Id; session = diagnostic; }
                 if (session == null) throw new InvalidOperationException("Session library unavailable; cannot pin benchmark report.");
                 checkpoint(run with { Status = "Capturing", Target = target, SessionId = session });
-                logger = await Task.Run(async () => await PerformanceLogger.StartAsync(target, presentMon, null, network, token));
+                logger = await Task.Run(async () => await PerformanceLogger.StartAsync(target, presentMon, null, network, _appliedSettings.Diagnostics, token));
                 logger.SetContext(recipe.Instructions + "\n" + recipe.Settings, "Benchmark recipe: " + recipe.Name + "; run " + run.Index);
             }, async () =>
             {

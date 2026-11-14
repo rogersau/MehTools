@@ -43,11 +43,71 @@ public partial class PerformanceTimelineWindow : Window
             SampleTable.Columns.Add(Column("Selection", "Selection"));
         }
         SummaryText.Text = $"Original full-report summary: duration {report.Summary.DurationSeconds?.ToString("F1", CultureInfo.InvariantCulture) ?? "unavailable"} s; system samples {report.Summary.SystemSampleCount?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}; CPU/GPU avg {F(report.Summary.CpuAverage)}/{F(report.Summary.GpuAverage)}%; memory avg {F(report.Summary.MemoryAverageMiB)} MiB; FPS avg {F(report.Summary.FpsAverage)}; frame time avg {F(report.Summary.FrameMsAverage)} ms ({report.Summary.FpsMethod ?? "method unavailable"}; {report.Summary.FrameCount?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"} frames). This full-report summary is separate from the selection below.";
+        StutterPanel.Visibility = report.Investigations.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        StutterList.ItemsSource = report.Investigations.Select(e => new StutterEntry(e, $"{e.Frame.OffsetSeconds:F3} s - {e.Frame.FrameMs:F2} ms")).ToArray();
         NetworkTarget.ItemsSource = report.Network?.Targets ?? [];
-        NetworkPanel.Visibility = report.Network is { Enabled:true } ? Visibility.Visible : Visibility.Collapsed;
+        NetworkPanel.Visibility = report.Network is { Enabled: true } ? Visibility.Visible : Visibility.Collapsed;
         NetworkTarget.SelectedIndex = 0;
         _initializing = false;
+        StutterList.SelectedIndex = report.Investigations.Count > 0 ? 0 : -1;
         RefreshAnalysis();
+    }
+
+    private sealed record StutterEntry(StutterInvestigation Event, string Display);
+    private void StutterList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_initializing || StutterList.SelectedItem is not StutterEntry selected) return;
+        var investigation = selected.Event;
+        RangeStart.Text = investigation.StartSeconds.ToString("F3", CultureInfo.InvariantCulture);
+        RangeEnd.Text = Math.Min(_duration, investigation.EndSeconds).ToString("F3", CultureInfo.InvariantCulture);
+        StutterText.Text = "OBSERVATION: " + investigation.Finding.Observation + "\nPOSSIBLE CAUSE: " + investigation.Finding.PossibleCause +
+            "\nCONFIDENCE / LIMITATIONS: " + investigation.Finding.ConfidenceAndLimitations +
+            $"\nFrame plot contains {investigation.Frames.Count} of {investigation.ContextFramesBeforeReportReduction} retained context frames (worst per group and immediate neighbours if reduced); raw CSV preserves all accepted frames. Plot uses actual per-frame timestamps. Dots mark hardware collection times; counter windows and GPU query times are listed below. Missing measurements are not interpolated.";
+        StutterHardware.ItemsSource = investigation.Hardware.SelectMany(h => h.Values.Where(v => !v.Key.StartsWith("cpuFrequencyMHz:")).Select(v =>
+        {
+            var (name, unit, source, scope) = DiagnosticMeasurements.Describe(v.Key);
+            return new
+            {
+                Collection = $"{h.CollectionStartSeconds:F3}-{h.CollectionEndSeconds:F3} s",
+                CounterStart = F(h.CounterWindowStartSeconds),
+                CpuStart = F(h.CpuWindowStartSeconds),
+                ProcessStart = F(h.ProcessWindowStartSeconds),
+                ProcessEnd = F(h.ProcessWindowEndSeconds),
+                GpuQuery = $"{F(h.GpuCollectionStartSeconds)}-{F(h.GpuCollectionEndSeconds)} s",
+                Measurement = name,
+                Value = v.Value?.ToString("F2", CultureInfo.InvariantCulture) ?? "Unavailable",
+                Unit = unit,
+                Scope = scope,
+                Source = source
+            };
+        })).ToArray();
+        RefreshAnalysis(); DrawStutter();
+    }
+    private void DrawStutter()
+    {
+        if (StutterList.SelectedItem is not StutterEntry selected) return;
+        var e = selected.Event; var canvas = StutterPlot; canvas.Children.Clear();
+        var width = Math.Max(300, canvas.ActualWidth); var height = 180d;
+        const double left = 58, top = 24, bottom = 22;
+        var end = Math.Min(_duration, e.EndSeconds); var span = Math.Max(.01, end - e.StartSeconds);
+        var max = Math.Max(1, e.Frames.Select(f => f.FrameMs).DefaultIfEmpty(1).Max() * 1.1);
+        double X(double t) => left + (t - e.StartSeconds) / span * (width - left - 14);
+        double Y(double ms) => top + (1 - ms / max) * (height - top - bottom);
+        AddText(canvas, "Per-frame ms (white), CPU Busy (blue), GPU Busy (purple); green ticks = hardware samples", 8, 3, 11, Brushes.White);
+        AddText(canvas, max.ToString("F1", CultureInfo.InvariantCulture), 4, top, 10, Brushes.LightGray);
+        AddText(canvas, $"{e.StartSeconds:F2}s", left, height - 18, 10, Brushes.LightGray);
+        AddText(canvas, $"{end:F2}s", width - 65, height - 18, 10, Brushes.LightGray);
+        foreach (var f in e.Frames.Where(f => f.OffsetSeconds >= e.StartSeconds && f.OffsetSeconds <= end))
+        {
+            var x = X(f.OffsetSeconds);
+            AddLine(canvas, x, Y(0), x, Y(f.FrameMs), Brushes.White, 1);
+            if (f.CpuBusyMs is { } cpu) AddLine(canvas, x - 1, Y(0), x - 1, Y(Math.Min(max, cpu)), Brushes.DodgerBlue, 1);
+            if (f.GpuBusyMs is { } gpu) AddLine(canvas, x + 1, Y(0), x + 1, Y(Math.Min(max, gpu)), Brushes.MediumPurple, 1);
+        }
+        foreach (var h in e.Hardware.Where(h => h.CollectionStartSeconds >= e.StartSeconds && h.CollectionStartSeconds <= end))
+            AddLine(canvas, X(h.CollectionStartSeconds), height - bottom, X(h.CollectionStartSeconds), height - bottom - 8, Brushes.LightGreen, 2);
+        foreach (var m in e.Markers) AddLine(canvas, X(m.OffsetSeconds), top, X(m.OffsetSeconds), height - bottom, Brushes.Gold, 1);
+        AddLine(canvas, X(e.Frame.OffsetSeconds), top, X(e.Frame.OffsetSeconds), height - bottom, Brushes.OrangeRed, 2);
     }
 
     private static DataGridTextColumn Column(string title, string path) => new() { Header = title, Binding = new System.Windows.Data.Binding(path), Width = DataGridLength.Auto };
@@ -80,7 +140,7 @@ public partial class PerformanceTimelineWindow : Window
         RangeEnd.Text = end.ToString("F3", CultureInfo.InvariantCulture); RefreshAnalysis();
     }
 
-    private void Plot_SizeChanged(object sender, SizeChangedEventArgs e) { if (!_initializing) RefreshAnalysis(); }
+    private void Plot_SizeChanged(object sender, SizeChangedEventArgs e) { if (!_initializing) { RefreshAnalysis(); DrawStutter(); } }
 
     private void RefreshAnalysis()
     {
@@ -111,21 +171,21 @@ public partial class PerformanceTimelineWindow : Window
         NetworkTable.ItemsSource = all.Select(r => new { r.Target, r.Address, r.SendSeconds, r.ReceiveSeconds, r.Status, r.RttMs, Selection = Included(r) ? "Retained" : "Excluded" }).ToArray();
         NetworkPlot.Children.Clear();
         var width = Math.Max(300, NetworkPlot.ActualWidth);
-        const double left=58, right=14;
-        var plotWidth=Math.Max(1,width-left-right);
-        double X(double seconds)=>left+(seconds-start)/(end-start)*plotWidth;
+        const double left = 58, right = 14;
+        var plotWidth = Math.Max(1, width - left - right);
+        double X(double seconds) => left + (seconds - start) / (end - start) * plotWidth;
         var max = Math.Max(1, all.Select(r => r.RttMs ?? 0).DefaultIfEmpty().Max());
         AddText(NetworkPlot, $"RTT ms (top {max:F1}); red = timeout, orange = error; range {start:F1}–{end:F1}s", 8, 3, 11, Brushes.White);
         foreach (var r in all)
         {
             var point = new Ellipse { Width = 5, Height = 5, Fill = !Included(r) ? Brushes.Gray : r.Status == "Success" ? Brushes.LightBlue : r.Status == "TimedOut" ? Brushes.Red : Brushes.Orange };
-            Canvas.SetLeft(point, X(r.SendSeconds)-2.5);
-            Canvas.SetTop(point, r.RttMs is double ms ? 120-ms/max*90 : 128); NetworkPlot.Children.Add(point);
+            Canvas.SetLeft(point, X(r.SendSeconds) - 2.5);
+            Canvas.SetTop(point, r.RttMs is double ms ? 120 - ms / max * 90 : 128); NetworkPlot.Children.Add(point);
         }
         foreach (var marker in _report.Markers.Where(m => m.OffsetSeconds >= start && m.OffsetSeconds <= end))
         {
             var x = X(marker.OffsetSeconds);
-            AddLine(NetworkPlot,x,25,x,135,Brushes.Yellow,1);
+            AddLine(NetworkPlot, x, 25, x, 135, Brushes.Yellow, 1);
         }
     }
 
@@ -133,7 +193,7 @@ public partial class PerformanceTimelineWindow : Window
     {
         if (_initializing || !Read(RangeStart.Text, out var start) || !Read(RangeEnd.Text, out var end) || end <= start) return;
         var excluded = _exclusions.ToArray();
-        RefreshNetwork(start,end,excluded.Select(x=>new ReportExclusion(x.Start,x.End,x.Reason)).ToArray());
+        RefreshNetwork(start, end, excluded.Select(x => new ReportExclusion(x.Start, x.End, x.Reason)).ToArray());
         var rows = _report.Rows;
         Draw(FramePlot, "Frame window time (ms) · max / window average", start, end, excluded,
             (r) => (r.FrameWindowStartSeconds is double s && r.FrameWindowEndSeconds is double e ? (s + e) / 2 : null, r.FrameMaxMs),

@@ -5,6 +5,7 @@ public static class SettingsValidation
     public static IReadOnlyList<string> Validate(AppSettings settings)
     {
         var errors = new List<string>();
+        try { settings.Diagnostics.Validate(); } catch (ArgumentException ex) { errors.Add(ex.Message); }
         if (settings.LiveWardogs is null || !settings.LiveWardogs.IsValid) errors.Add("Live WARDOGS rate, budget or normalized crop is invalid.");
         try { Diagnostics.NetworkProbeOptions.Create(settings.NetworkDiagnosticsEnabled, settings.NetworkTargets); }
         catch (ArgumentException ex) { errors.Add(ex.Message); }

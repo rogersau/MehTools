@@ -21,6 +21,7 @@ public sealed record ParsedPerformanceReport(ReportMachineSummary Summary,
     IReadOnlyList<ReportTimelineRow> Rows, IReadOnlyList<ReportMarker> Markers)
 {
     public NetworkCapture? Network { get; init; }
+    public IReadOnlyList<StutterInvestigation> Investigations { get; init; } = [];
 }
 
 public sealed record ReportExclusion(double StartSeconds, double EndSeconds, string Reason);
@@ -41,7 +42,7 @@ public static class ReportComparison
         var a = string.IsNullOrWhiteSpace(baseline.FpsMethod) ? legacy : baseline.FpsMethod.Trim();
         var b = string.IsNullOrWhiteSpace(retest.FpsMethod) ? legacy : retest.FpsMethod.Trim();
         return new(string.Equals(a, b, StringComparison.OrdinalIgnoreCase), a, b,
-            !string.IsNullOrWhiteSpace(baseline.Context) && !string.IsNullOrWhiteSpace(retest.Context) &&
+            !string.IsNullOrWhiteSpace(baseline.Context) && !string.IsNullOrWhiteSpace(retest.Context) && baseline.Context.Trim() != "Not provided." &&
             string.Equals(baseline.Context.Trim(), retest.Context.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 }
@@ -62,7 +63,7 @@ public static class ReportTimeline
         var section = text.IndexOf("## Sample timeline (CSV)", StringComparison.OrdinalIgnoreCase);
         if (section < 0) { error = "This report has no supported sample timeline. The full report can still be compared."; return false; }
         var formatMatch = Regex.Match(text, @"^-\s*Report format:\s*(?<version>\d+)\s*$", RegexOptions.Multiline | RegexOptions.CultureInvariant);
-        if (!formatMatch.Success || formatMatch.Groups["version"].Value != "2")
+        if (!formatMatch.Success || formatMatch.Groups["version"].Value is not ("2" or "3"))
         { error = "This report format is not supported by the timeline viewer. The full report can still be compared."; return false; }
         var fenceStart = text.IndexOf("```csv", section, StringComparison.OrdinalIgnoreCase);
         var fenceEnd = fenceStart < 0 ? -1 : text.IndexOf("```", fenceStart + 6, StringComparison.Ordinal);
@@ -93,7 +94,14 @@ public static class ReportTimeline
         }
         if (headers is null) { error = "The report timeline has no recognized header."; return false; }
         if (rows.Count == 0) { error = "The report timeline has no valid sample rows."; return false; }
-        report = new(summary, rows, markers) { Network = NetworkReports.Read(text) };
+        StutterInvestigation[] events = [];
+        try
+        {
+            if (DiagnosticComparison.MachineSummary(text) is { } root && root.TryGetProperty("investigations", out var investigations) && investigations.ValueKind == JsonValueKind.Array)
+                events = JsonSerializer.Deserialize<StutterInvestigation[]>(investigations.GetRawText())?.Where(e => e is not null && e.Frame is not null && e.Frames is not null && e.Hardware is not null && e.Finding is not null && e.Markers is not null && e.HardFaults is not null).Take(10).ToArray() ?? [];
+        }
+        catch (JsonException) { } // A damaged diagnostic section must not hide the older timeline.
+        report = new(summary, rows, markers) { Network = NetworkReports.Read(text), Investigations = events };
         return true;
     }
 
