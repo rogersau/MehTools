@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\JamesTools.Core\JamesTools.Core.csproj" />
     <ProjectReference Include="..\JamesTools.OcrWorker\JamesTools.OcrWorker.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\JamesTools.Mcp\JamesTools.Mcp.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -40,5 +41,12 @@
   </Target>
   <Target Name="PublishLiveWorker" AfterTargets="Publish">
     <MSBuild Projects="..\JamesTools.OcrWorker\JamesTools.OcrWorker.csproj" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)tools\ocr\" />
+  </Target>
+  <Target Name="BuildMcpServer" AfterTargets="Build">
+    <ItemGroup><McpServerFiles Include="..\JamesTools.Mcp\bin\$(Configuration)\net10.0-windows\$(RuntimeIdentifier)\**\*" /></ItemGroup>
+    <Copy SourceFiles="@(McpServerFiles)" DestinationFiles="@(McpServerFiles->'$(TargetDir)tools\mcp\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+  <Target Name="PublishMcpServer" AfterTargets="Publish">
+    <MSBuild Projects="..\JamesTools.Mcp\JamesTools.Mcp.csproj" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)tools\mcp\" />
   </Target>
 </Project>

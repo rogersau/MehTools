@@ -12,6 +12,12 @@ A small Windows desktop companion for game recording, NVIDIA digital vibrance, a
 - Shows an optional movable on-screen monitor for CPU, NVIDIA GPU and game frame measurements.
 - Runs in the notification area and can start with Windows. No telemetry or account is required.
 
+## AI diagnostics with MCP
+
+Meh Tools includes a separate, headless MCP server for read-only system diagnostics, live telemetry, bounded recording sessions, historical measurements, game-component inspection and Windows diagnostic events. Local clients launch `tools/mcp/MehTools.Mcp.exe` using stdio; the desktop application does not need to stay open. Optional HTTP requires authentication and explicit configuration.
+
+See the [MCP setup, tool reference and testing guide](docs/mcp.md) and [architecture overview](docs/mcp-architecture.md). Open **Settings → MCP diagnostics…** to configure access and view server status. Sensor support depends on the hardware and driver; unavailable readings remain explicitly unavailable.
+
 ## Requirements
 
 - 64-bit Windows 10 (build 19041 / version 2004 or later) or Windows 11.

@@ -63,12 +63,14 @@ internal static class UiAudit
     }
     public static async Task Run(string data, string[] args)
     {
+        McpSettingsTests.Run(data);
         int render = Array.IndexOf(args, "--render");
         if (render >= 0) { output = Path.GetFullPath(args[render + 1]); Directory.CreateDirectory(output); }
         var game = new GameRule { Name = "Synthetic game", ExecutablePath = @"C:\Synthetic\game.exe" };
         var windows = new List<(string Name, Window Window)> {
             ("benchmarks", new BenchmarkWindow(new BenchmarkStore(data), game.ExecutablePath, game.Name, (_,_,_,_,_) => throw new Exception("Unexpected benchmark capture"), _ => { })),
             ("configuration", new ConfigurationSnapshotsWindow(new ConfigSnapshotStore(data), game, (_,_) => { })),
+            ("mcp-settings", new McpSettingsWindow(data)),
             ("history", new PerformanceHistoryWindow(new PerformanceHistoryStore(data), game.ExecutablePath, game.Name, [], (_,_) => { })),
             ("profiles", new GameProfilesEditorWindow([new GameProfile { Name = "Balanced" }], [], [game])),
             ("stutter", new PerformanceTimelineWindow(new ParsedPerformanceReport(new(3, 30, "1000/meanFrameMs", 60, 16.7, 40, 65, 4096, 1, 60, null, "Synthetic scene", "Hitch"), [new(0, 1, 40, 65, 4096, 0, 1, 0, 1, 0, 1, "test", 60, 60, 20, 0)], []) {
