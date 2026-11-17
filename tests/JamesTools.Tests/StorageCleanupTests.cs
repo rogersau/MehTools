@@ -165,11 +165,40 @@ internal static class StorageCleanupTests
         }
         File.SetLastWriteTimeUtc(path, entry.FileStamp!.LastWriteUtc);
         var stale = files.Inspect(path) with { Identity = "different-file" };
-        try { files.Delete(path, stale); throw new Exception("Native deletion accepted a different file identity"); }
-        catch (IOException) { Check(File.Exists(path), "native stale-file rejection removed the recording"); }
+        RejectNativeDelete(stale, "different file identity");
+        File.SetLastWriteTimeUtc(path, entry.FileStamp.LastWriteUtc.AddMinutes(1));
+        RejectNativeDelete(entry.FileStamp, "changed write timestamp");
+        File.SetLastWriteTimeUtc(path, entry.FileStamp.LastWriteUtc);
+        File.SetCreationTimeUtc(path, entry.FileStamp.CreatedUtc.AddMinutes(-1));
+        RejectNativeDelete(entry.FileStamp, "changed creation timestamp");
+        File.SetCreationTimeUtc(path, entry.FileStamp.CreatedUtc);
+
+        // Keep the old file alive so NTFS cannot reuse its identity for the replacement.
+        var original = Path.Combine(temp.Path, "original.mkv");
+        File.Move(path, original);
+        File.WriteAllBytes(path, new byte[entry.FileStamp.SizeBytes]);
+        File.SetCreationTimeUtc(path, entry.FileStamp.CreatedUtc);
+        File.SetLastWriteTimeUtc(path, entry.FileStamp.LastWriteUtc);
+        var replacement = files.Inspect(path);
+        Check(replacement.SizeBytes == entry.FileStamp.SizeBytes && replacement.CreatedUtc == entry.FileStamp.CreatedUtc &&
+            replacement.LastWriteUtc == entry.FileStamp.LastWriteUtc && replacement.Identity != entry.FileStamp.Identity,
+            "native replacement fixture must differ only in file identity");
+        RejectNativeDelete(entry.FileStamp, "replacement with matching size and timestamps");
+        var replaced = new RecordingCleanupService().DeleteSelected([entry], () => sessions, [temp.Path]);
+        Check(replaced is { DeletedCount: 0, SkippedCount: 1 } && File.Exists(path), "cleanup accepted a replacement identity");
+        File.Delete(path);
+        File.Move(original, path);
+
         var result = new RecordingCleanupService().DeleteSelected([entry], () => sessions, [temp.Path]);
         Check(result is { DeletedCount: 1, DeletedBytes: 30, SkippedCount: 0 } && !File.Exists(path),
             "native handle deletion failed for an unchanged, closed recording: " + string.Join("; ", result.Files.Select(f => f.Message)));
+        Console.WriteLine("PASS native recording deletion: unchanged file, writer lock, identity, replacement and timestamps");
+
+        void RejectNativeDelete(RecordingFileStamp expected, string scenario)
+        {
+            try { files.Delete(path, expected); throw new Exception("Native deletion accepted " + scenario); }
+            catch (IOException) { Check(File.Exists(path), "native stale-file rejection removed the recording: " + scenario); }
+        }
     }
 
     private static string Video(string root, string name, int size, int ageDays = 3)

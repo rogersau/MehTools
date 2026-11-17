@@ -15,6 +15,7 @@ using JamesTools.Core.Configuration;
 using JamesTools.Core.ConfigurationSnapshots;
 using JamesTools.Core.Diagnostics;
 using JamesTools.Core.Scanning;
+using JamesTools.Core.Storage;
 
 internal static class UiAudit
 {
@@ -103,7 +104,7 @@ internal static class UiAudit
         Set(review, "selected", null!); await Close(review);
         await CloseLifecycle(data);
         await Controls();
-        AuditMainPages(game);
+        await AuditMainPages(game);
         Console.WriteLine($"PASS {layouts} synthetic window/page layouts, shared dark surfaces and minimum-size content");
     }
     static async Task CloseLifecycle(string data)
@@ -183,7 +184,7 @@ internal static class UiAudit
         foreach (var attribute in xml.Descendants().Attributes().Where(a => a.Name.NamespaceName.Length == 0 && (events.Contains(a.Name.LocalName) || a.Name.LocalName == "DataObject.Pasting")).ToArray()) attribute.Remove();
         return (Window)XamlReader.Parse(xml.ToString());
     }
-    static void AuditMainPages(GameRule game)
+    static async Task AuditMainPages(GameRule game)
     {
         // Parse markup without code-behind so this audit cannot start automation, hardware sampling or OBS.
         var main = MarkupWindow("MainWindow"); var settings = new AppSettings(); settings.Games.Add(game); main.DataContext = settings;
@@ -196,6 +197,7 @@ internal static class UiAudit
             Render(main, "main-" + page.Header, 1148, 760);
             Render(main, "main-" + page.Header, 948, 650);
         }
+        await AuditRecordingSpace(main, pages);
         pages.SelectedIndex = 3; ((FrameworkElement)main.Content).UpdateLayout();
         var targeting = (ComboBox)main.FindName("VibranceTargetBox"); var display = (ComboBox)main.FindName("VibranceDisplayBox");
         Check(targeting.Items.Count == 3 && display.Items.Count == 1, "Colour selectors do not resolve view-owned option lists");
@@ -204,5 +206,76 @@ internal static class UiAudit
         Console.WriteLine("PASS colour option bindings and two-way selection through main-window markup");
         main.Close();
         var overlay = MarkupWindow("PerformanceOverlay"); Render(overlay, "overlay", 260, 220); overlay.Close();
+    }
+
+    static async Task AuditRecordingSpace(Window main, TabControl pages)
+    {
+        // Use the real row model and markup, with no main-window constructor, event handlers or file access.
+        pages.SelectedIndex = 2;
+        ((ListBox)main.FindName("Navigation")).SelectedIndex = 2;
+        ((TextBlock)main.FindName("PageTitle")).Text = "Recording";
+        var grid = (DataGrid)main.FindName("CleanupPreviewGrid");
+        var rowType = typeof(MainWindow).GetNestedType("CleanupPreviewRow", BindingFlags.NonPublic)!;
+        var entries = new[] {
+            new CleanupPreviewEntry(@"C:\Synthetic\large-recording.mkv", 45, 3L * 1024 * 1024 * 1024, true, "Older than the 30-day suggestion limit.", "Synthetic game") { CanDelete = true },
+            new CleanupPreviewEntry(@"C:\Synthetic\small-recording.mkv", 1, 20, false, "Within suggestion limits.", "Synthetic game") { CanDelete = true },
+            new CleanupPreviewEntry(@"C:\Synthetic\favourite-clip.mkv", 10, 1024, false, "Clip attachment is protected.", "Synthetic game"),
+            new CleanupPreviewEntry(@"C:\Synthetic\missing-recording.mkv", null, null, false, "File is missing, unsafe or unreadable.", null)
+        };
+        var rows = entries.Select(entry => Activator.CreateInstance(rowType, [entry])!).ToArray();
+        grid.ItemsSource = rows;
+        Check(grid.IsReadOnly && !grid.CanUserAddRows && grid.SelectionMode == DataGridSelectionMode.Extended &&
+            grid.SelectionUnit == DataGridSelectionUnit.FullRow, "Recording cleanup must use read-only, extended full-row selection");
+        Check(grid.Columns.Select(c => c.Header.ToString()).SequenceEqual(new[] { "Game", "Status", "Age (days)", "Size", "Reason", "File" }),
+            "Recording cleanup columns are missing");
+        var size = grid.Columns.Single(c => Equals(c.Header, "Size"));
+        Check(size.SortMemberPath == "Entry.SizeBytes", "Recording size must sort numerically, rather than by its formatted label");
+        Check(!((Button)main.FindName("DeleteRecordingsButton")).IsEnabled &&
+            !((Button)main.FindName("SelectCleanupSuggestionsButton")).IsEnabled &&
+            !((Button)main.FindName("ClearCleanupSelectionButton")).IsEnabled &&
+            ((Button)main.FindName("CancelCleanupButton")).Visibility == Visibility.Collapsed,
+            "Recording cleanup actions must start safely disabled");
+
+        foreach (var width in new[] { 948d, 1148d })
+        {
+            Render(main, "recording-space", width, width > 1000 ? 760 : 650);
+            grid.BringIntoView(); main.UpdateLayout();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            Check(grid.ActualHeight >= 140, "Recording cleanup table is squeezed out");
+            var file = grid.Columns.Single(c => Equals(c.Header, "File"));
+            Check(file.ActualWidth >= 240, $"Recording cleanup file column collapses, hiding recording paths: {file.ActualWidth} pixels at {width} pixels content width");
+            foreach (var row in rows)
+            {
+                grid.ScrollIntoView(row); grid.UpdateLayout();
+                foreach (var column in grid.Columns)
+                    Check(column.GetCellContent(row) is TextBlock text && (text.Text.Length > 0 ||
+                        (row == rows[3] && Equals(column.Header, "Age (days)"))), "Recording cleanup cell has no bound text: " + column.Header);
+            }
+            grid.SelectedItems.Add(rows[0]); grid.SelectedItems.Add(rows[1]);
+            Check(grid.SelectedItems.Count == 2, "Recording cleanup cannot select multiple recordings");
+            grid.SelectedItems.Clear();
+            Check(grid.SelectedItems.Count == 0, "Recording cleanup cannot clear its selection");
+            var actions = (FrameworkElement)((Button)main.FindName("DeleteRecordingsButton")).Parent;
+            actions.BringIntoView(); main.UpdateLayout();
+            var scroll = Tree((DependencyObject)pages.SelectedContent).OfType<ScrollViewer>().First();
+            var position = actions.TransformToAncestor(scroll).Transform(new Point());
+            Check(position.Y >= 0 && position.Y + actions.ActualHeight <= scroll.ActualHeight,
+                "Recording selection actions cannot be reached by scrolling");
+            Render(main, "recording-space-actions", width, width > 1000 ? 760 : 650);
+            var tableScroll = Tree(grid).OfType<ScrollViewer>().First();
+            tableScroll.ScrollToRightEnd(); grid.UpdateLayout();
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            var fileCell = file.GetCellContent(rows[0]);
+            var filePosition = fileCell.TransformToAncestor(grid).Transform(new Point());
+            Check(filePosition.X >= 0 && filePosition.X + fileCell.ActualWidth <= grid.ActualWidth,
+                $"Recording paths cannot be reached by horizontal scrolling: x={filePosition.X}, cell={fileCell.ActualWidth}, grid={grid.ActualWidth}, offset={tableScroll.HorizontalOffset}/{tableScroll.ScrollableWidth}");
+            Render(main, "recording-space-files", width, width > 1000 ? 760 : 650);
+        }
+        var view = CollectionViewSource.GetDefaultView(grid.ItemsSource);
+        view.SortDescriptions.Add(new SortDescription(size.SortMemberPath, ListSortDirection.Descending));
+        Check(view.Cast<object>().SequenceEqual(new[] { rows[0], rows[2], rows[1], rows[3] }), "Recording cleanup numeric size order is incorrect");
+        view.SortDescriptions.Clear();
+        grid.ItemsSource = null;
+        Console.WriteLine("PASS recording-space populated bindings, numeric size sort, multiple selection and reachable actions at normal/minimum sizes (markup only)");
     }
 }
