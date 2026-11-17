@@ -1027,6 +1027,14 @@ public partial class MainWindow : Window
     private async Task ExitAsync()
     {
         if (_exiting) return;
+        if (_cleanupBusy)
+        {
+            // Finish any verified file operation before shutting down; cancellation stops the remaining batch.
+            if (_cleanupTask is null) return;
+            _cleanupCancellation?.Cancel();
+            try { await _cleanupTask; }
+            catch (Exception ex) { AddActivity("Recording cleanup stopped: " + ex.Message); }
+        }
         if (!await PreparePerformanceForExitAsync()) return;
         if (!CloseConfigSnapshotsForExit()) return;
         foreach (var playback in OwnedWindows.OfType<RecordingPlaybackWindow>().ToArray()) { await playback.ShutdownAsync(); playback.Close(); }

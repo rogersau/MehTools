@@ -473,27 +473,40 @@
                                 <TextBlock Text="When enabled: base / safe game name / yyyy-MM-dd (local date). Existing recordings are never moved." Style="{StaticResource Hint}" Margin="0,5,0,0" TextWrapping="Wrap"/>
                             </StackPanel></Border>
                             <Border Style="{StaticResource Card}"><StackPanel>
-                                <TextBlock Text="Cleanup suggestions" FontSize="16" FontWeight="SemiBold"/>
-                                <TextBlock Text="Preview only. Suggestions can become stale; refresh rechecks session references and file metadata. Nothing is removed." Style="{StaticResource Hint}" Margin="0,5,0,10" TextWrapping="Wrap"/>
+                                <TextBlock Text="Manage recording space" FontSize="16" FontWeight="SemiBold"/>
+                                <TextBlock Text="Review media referenced by Sessions. Sizes include protected recordings and clips in configured folders; other files are not scanned. Sort by Size to find large recordings. Deletion always needs confirmation." Style="{StaticResource Hint}" Margin="0,5,0,10" TextWrapping="Wrap"/>
                                 <WrapPanel VerticalAlignment="Center" Margin="0,0,0,8">
                                     <TextBlock Text="Suggest recordings older than (days)" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <TextBox Width="76" Text="{Binding CleanupSuggestionAgeDays, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBlock Text="Storage budget (GiB)" VerticalAlignment="Center" Margin="14,0,8,0"/>
                                     <TextBox Width="76" Text="{Binding CleanupSuggestionBudgetGiB, UpdateSourceTrigger=PropertyChanged}"/>
-                                    <Button Content="Refresh preview" Click="RefreshCleanupPreview_Click" Margin="10,0,0,0"/>
+                                    <Button x:Name="RefreshCleanupButton" Content="Refresh files" Click="RefreshCleanupPreview_Click" Margin="10,0,0,0"/>
                                     <Button Content="Export text" Click="ExportCleanupPreview_Click" Margin="6,0,0,0"/>
                                     <Button Content="Open folder" Click="OpenCleanupFolder_Click" Margin="6,0,0,0"/>
                                 </WrapPanel>
-                                <TextBlock x:Name="CleanupPreviewSummary" TextWrapping="Wrap" Text="No preview yet." Margin="0,0,0,8"/>
-                                <DataGrid x:Name="CleanupPreviewGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" MinHeight="120" MaxHeight="280">
+                                <TextBlock Text="Age and budget only suggest completed recordings to remove. Favourites, clips, incomplete sessions, and files outside configured folders are protected." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                                <TextBlock x:Name="CleanupPreviewSummary" TextWrapping="Wrap" Text="Choose Refresh files to see recording sizes." Margin="0,0,0,8"/>
+                                <DataGrid x:Name="CleanupPreviewGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Extended" SelectionUnit="FullRow" SelectionChanged="CleanupPreviewGrid_SelectionChanged" MinHeight="140" MaxHeight="320">
                                     <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Game" Binding="{Binding Game}" Width="120"/>
                                         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="110"/>
                                         <DataGridTextColumn Header="Age (days)" Binding="{Binding AgeDays}" Width="90"/>
-                                        <DataGridTextColumn Header="Size" Binding="{Binding SizeLabel}" Width="100"/>
+                                        <DataGridTextColumn Header="Size" Binding="{Binding SizeLabel}" SortMemberPath="Entry.SizeBytes" Width="100"/>
                                         <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="220"/>
                                         <DataGridTextColumn Header="File" Binding="{Binding Path}" Width="*"/>
                                     </DataGrid.Columns>
                                 </DataGrid>
+                                <TextBlock x:Name="CleanupSelectionSummary" Text="Select recordings in the table. Use Ctrl or Shift to select several files." TextWrapping="Wrap" Margin="0,10,0,6"/>
+                                <WrapPanel>
+                                    <Button x:Name="SelectCleanupSuggestionsButton" Content="Select suggestions" Click="SelectCleanupSuggestions_Click" IsEnabled="False"/>
+                                    <Button x:Name="ClearCleanupSelectionButton" Content="Clear selection" Click="ClearCleanupSelection_Click" IsEnabled="False" Margin="6,0,0,0"/>
+                                    <Button x:Name="DeleteRecordingsButton" Content="Delete selected…" Click="DeleteRecordings_Click" IsEnabled="False" Margin="6,0,0,0"/>
+                                    <Button x:Name="CancelCleanupButton" Content="Cancel cleanup" Click="CancelCleanup_Click" Visibility="Collapsed" Margin="6,0,0,0"/>
+                                </WrapPanel>
+                                <TextBlock x:Name="CleanupOperationSummary" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                <Expander x:Name="CleanupOperationResults" Header="Cleanup results" Visibility="Collapsed" Margin="0,6,0,0">
+                                    <TextBox x:Name="CleanupOperationDetails" IsReadOnly="True" TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"/>
+                                </Expander>
                             </StackPanel></Border>
                         </StackPanel>
                     </ScrollViewer>

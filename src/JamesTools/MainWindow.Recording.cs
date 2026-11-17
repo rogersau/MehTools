@@ -152,9 +152,20 @@ public partial class MainWindow
             : "Space: unknown — " + (result.Reason ?? "capacity unavailable");
     }
 
-    private static string FormatStorageBytes(long bytes) => $"{bytes / 1073741824d:0.0} GiB";
+    private static string FormatStorageBytes(long bytes) => bytes switch
+    {
+        >= 1073741824 => $"{bytes / 1073741824d:0.##} GiB",
+        >= 1048576 => $"{bytes / 1048576d:0.##} MiB",
+        >= 1024 => $"{bytes / 1024d:0.##} KiB",
+        _ => $"{bytes} bytes"
+    };
 
     private async void RefreshCleanupPreview_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_cleanupBusy) await RefreshCleanupPreviewAsync();
+    }
+
+    private async Task RefreshCleanupPreviewAsync()
     {
         if (_exiting) return;
         if (_sessionStore is null) { CleanupPreviewSummary.Text = "Session history is unavailable."; return; }
@@ -172,15 +183,18 @@ public partial class MainWindow
             var preview = await Task.Run(() => CleanupPreviewBuilder.Build(sessions, roots, now, ageDays, budget));
             if (_exiting || version != _cleanupRefreshVersion) return;
             _cleanupPreview = preview;
-            CleanupPreviewGrid.ItemsSource = preview.Entries.Select(e => new CleanupPreviewRow(e)).ToArray();
+            CleanupPreviewGrid.ItemsSource = preview.Entries.OrderByDescending(e => e.SizeBytes).Select(e => new CleanupPreviewRow(e)).ToArray();
             var reclaimable = preview.PotentialReclaimableBytes is long size ? FormatStorageBytes(size) : "unknown";
-            CleanupPreviewSummary.Text = $"Suggestions only · {preview.Entries.Count(e => e.Candidate)} candidate(s) · potential reclaimable: {reclaimable}. Refresh to re-evaluate; nothing is removed.";
+            CleanupPreviewSummary.Text = $"{preview.Entries.Count} referenced media file(s) · {FormatStorageBytes(preview.KnownMediaBytes)} known size · {preview.UnknownSizeCount} unknown size(s). " +
+                $"Available for deletion: {FormatStorageBytes(preview.DeletableBytes)} · {preview.Entries.Count(e => e.Candidate)} suggestion(s): {reclaimable}.";
+            UpdateCleanupControls();
         }
         catch (Exception ex)
         {
             if (!_exiting && version == _cleanupRefreshVersion)
                 CleanupPreviewSummary.Text = "Couldn't refresh cleanup suggestions: " + ex.Message;
         }
+        finally { if (!_exiting) UpdateCleanupControls(); }
     }
 
     private static IReadOnlyList<string> RecordingRoots(AppSettings settings) => settings.Games.Select(game => EffectiveGameOptionsResolver.Resolve(settings, game).RecordingDirectory)
@@ -210,10 +224,11 @@ public partial class MainWindow
     private sealed record CleanupPreviewRow(CleanupPreviewEntry Entry)
     {
         public string Path => Entry.Path;
+        public string Game => Entry.GameName ?? "Unassigned";
         public int? AgeDays => Entry.AgeDays;
         public string SizeLabel => Entry.SizeBytes is long size ? FormatStorageBytes(size) : "unknown";
         public string Reason => Entry.Reason;
-        public string Status => Entry.Candidate ? "Suggested" : "Protected / excluded";
+        public string Status => Entry.Candidate ? "Suggested" : Entry.CanDelete ? "Available" : "Protected / excluded";
     }
 
     private async void ObsConnect_Click(object sender, RoutedEventArgs e)

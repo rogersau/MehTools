@@ -79,7 +79,9 @@ The library is stored as versioned JSON in `%LOCALAPPDATA%\JamesTools\sessions.j
 
 The **Recording** page shows free space for the effective configured output folder (global or a selected game's resolved folder). Capacity can be unknown when a volume is disconnected or inaccessible. Optional low-space warnings default off and do not stop a capture. **Organise new managed captures by game and date** also defaults off; when enabled, new managed captures use `base/game/yyyy-MM-dd`. Existing media is never moved, and an OBS instance already running outside Meh Tools may use another output folder.
 
-The same page can preview cleanup suggestions from recording attachments already referenced by session history. Favourites, clips, active or incomplete sessions, reports, files outside configured roots, and unsafe or unavailable files are protected or excluded. Age and storage-budget limits only shape suggestions; they are not enforced. A preview is read-only and may become stale. Refresh it before acting on the information; Meh Tools does not delete or move recordings.
+Under **Recording → Manage recording space**, choose **Refresh files** to see the sizes of media already referenced by Sessions, the known total, unknown sizes, and bytes available for deletion. Shared paths are counted once, and protected recordings and clips inside configured folders contribute to known usage. This is a referenced-media inventory, not a scan of every file on disk. Click **Size** to sort numerically and use Ctrl/Shift to select multiple recordings. **Select suggestions** selects removable recordings matching the optional age or budget; these limits only shape suggestions and never remove files automatically.
+
+**Delete selected…** shows the selected count, total size and a confirmation with **No** as the default. Confirmed deletion is permanent and bypasses the Recycle Bin. Favourites, clips, active or incomplete sessions, reports, files outside configured roots, network/device paths, read-only files, links, and unavailable files are protected or excluded. Stop recording and close playback/export tools first. Every file is rechecked against current session references and its previewed size, timestamps and Windows file identity, then deleted using an exclusive handle; changed or in-use files are skipped with a reason. Cleanup reports completed deletions and skipped files, refreshes space information, and can be cancelled between files. Session history and notes remain, with deleted attachments marked missing. Listed file sizes describe media bytes; actual free space can differ because of filesystem allocation or other disk activity.
 
 ## On-screen monitor
 
@@ -105,6 +107,13 @@ iscc /DAppVersion=0.3.0 installer/MehTools.iss
 ```
 
 The last step needs the [Inno Setup](https://jrsoftware.org/isinfo.php) compiler (`iscc`) and produces `artifacts/installer/MehTools-setup-<version>-win-x64.exe`.
+
+On Linux, the .NET 10 SDK can compile the solution with Windows targeting enabled. Portable recording-space checks can run separately; native file deletion and WPF UI checks require Windows:
+
+```bash
+dotnet build JamesTools.sln -c Release -p:EnableWindowsTargeting=true
+dotnet run --project tests/JamesTools.Tests -c Release --no-build -- --filter "recording space"
+```
 
 Run `artifacts/publish/MehTools.exe` from the published folder. The folder contains the self-contained runtime; keep its files together.
 

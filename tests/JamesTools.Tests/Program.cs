@@ -73,8 +73,17 @@ var tests = new (string Name, Func<Task> Run)[]
     ("WARDOGS saved reviews, ownership, cancellation and recovery", WardogsReviewTests.Run),
     ("session library tracking, associations, persistence, and recovery", SessionTests.Run),
     ("recording storage planning, capacity warnings, and cleanup suggestions", StorageTests.Run),
+    ("recording space usage, explicit cleanup and stale-file protection", StorageCleanupTests.Run),
     ("live frame CSV handles quoted fields", Tests.LiveFrameCsv)
 };
+var filterIndex = Array.IndexOf(args, "--filter");
+if (filterIndex >= 0)
+{
+    var filter = args.ElementAtOrDefault(filterIndex + 1);
+    if (string.IsNullOrWhiteSpace(filter)) { Console.Error.WriteLine("Supply a test name after --filter."); return 2; }
+    tests = tests.Where(t => t.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToArray();
+    if (tests.Length == 0) { Console.Error.WriteLine("No tests match: " + filter); return 2; }
+}
 var failed = 0;
 foreach (var test in tests)
 {

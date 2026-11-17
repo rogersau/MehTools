@@ -94,13 +94,22 @@ public static class RecordingFolderPlanner
     }
 }
 
-public sealed record CleanupPreviewEntry(string Path, int? AgeDays, long? SizeBytes, bool Candidate, string Reason, string? GameName);
+public sealed record CleanupPreviewEntry(string Path, int? AgeDays, long? SizeBytes, bool Candidate, string Reason, string? GameName)
+{
+    public bool CanDelete { get; init; }
+    public RecordingFileStamp? FileStamp { get; init; }
+}
 public sealed record CleanupPreview(IReadOnlyList<CleanupPreviewEntry> Entries, long? PotentialReclaimableBytes, DateTime GeneratedUtc)
 {
+    public long KnownMediaBytes => Entries.Sum(e => e.SizeBytes ?? 0);
+    public int UnknownSizeCount => Entries.Count(e => e.SizeBytes is null);
+    public long DeletableBytes => Entries.Where(e => e.CanDelete).Sum(e => e.SizeBytes ?? 0);
+
     public string ToText()
     {
         var lines = new List<string> { "Cleanup suggestions only. No files were changed. Preview can become stale; refresh to re-evaluate.", "Status\tAge days\tSize bytes\tReason\tPath" };
-        lines.AddRange(Entries.Select(e => $"{(e.Candidate ? "Suggested" : "Protected/excluded")}\t{e.AgeDays?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}\t{e.SizeBytes?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}\t{e.Reason}\t{e.Path}"));
+        lines.AddRange(Entries.Select(e => $"{(e.Candidate ? "Suggested" : e.CanDelete ? "Available" : "Protected/excluded")}\t{e.AgeDays?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}\t{e.SizeBytes?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}\t{e.Reason}\t{e.Path}"));
+        lines.Add($"Known referenced media bytes: {KnownMediaBytes}; unknown sizes: {UnknownSizeCount}");
         lines.Add($"Potential reclaimable bytes: {PotentialReclaimableBytes?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}");
         return string.Join(Environment.NewLine, lines);
     }
@@ -112,8 +121,9 @@ public static class CleanupPreviewBuilder
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mkv", ".mp4", ".mov", ".flv", ".avi", ".ts", ".m4v", ".webm" };
 
     public static CleanupPreview Build(IEnumerable<GameSession> sessions, IEnumerable<string> recordingRoots,
-        DateTime nowUtc, int? ageLimitDays, double? budgetGiB)
+        DateTime nowUtc, int? ageLimitDays, double? budgetGiB, IRecordingFileAccess? fileAccess = null)
     {
+        fileAccess ??= new RecordingFileAccess();
         var roots = recordingRoots.Select(TryGetAbsolutePath).Where(p => p is not null).Select(p => Path.TrimEndingDirectorySeparator(p!))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var sessionList = sessions.ToArray();
@@ -136,7 +146,7 @@ public static class CleanupPreviewBuilder
         {
             if (references.Any(r => r.Attachment.Kind == SessionAttachmentKind.PerformanceReport)) continue;
             var owners = references.Where(r => r.Attachment.Kind == SessionAttachmentKind.Recording).ToArray();
-            var gameName = owners.FirstOrDefault().Session?.GameName;
+            var gameName = owners.FirstOrDefault().Session?.GameName ?? references[0].Session.GameName;
             string reason;
             bool safe = true;
             if (references.Any(r => r.Attachment.Kind == SessionAttachmentKind.Clip)) { reason = "Clip attachment is protected."; safe = false; }
@@ -145,26 +155,23 @@ public static class CleanupPreviewBuilder
             else if (owners.Length == 0 || references.Any(r => r.Attachment.Kind == SessionAttachmentKind.PerformanceReport)) { reason = "Only report or unsupported attachment references exist."; safe = false; }
             else if (!VideoExtensions.Contains(Path.GetExtension(path))) { reason = "File extension is not an allowed video type."; safe = false; }
             else if (!IsUnderAnyRoot(path, roots)) { reason = "File is outside configured recording folders."; safe = false; }
-            else
+            else reason = "Completed recording; no protection reference found.";
+            RecordingFileStamp? stamp = null;
+            // Count protected recordings and clips too, without inspecting files outside the configured roots.
+            if (IsUnderAnyRoot(path, roots))
             {
                 try
                 {
-                    if (!File.Exists(path)) { reason = "File is missing."; safe = false; }
-                    else if (HasReparsePoint(path)) { reason = "File or containing path is a reparse point or link."; safe = false; }
-                    else reason = "Completed recording; no protection reference found.";
+                    stamp = fileAccess.Inspect(path);
+                    if (safe && ((stamp.Attributes & FileAttributes.ReadOnly) != 0 || stamp.LinkCount != 1))
+                    { reason = "Read-only recordings and files with multiple hard links are protected."; safe = false; }
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-                { reason = "File metadata is unreadable: " + ex.Message; safe = false; }
+                { if (safe) reason = "File is missing, unsafe or unreadable: " + ex.Message; safe = false; }
             }
-            long? size = null;
-            int? ageDays = null;
-            if (safe)
-            {
-                try { var info = new FileInfo(path); size = info.Length; ageDays = Math.Max(0, (int)Math.Floor((nowUtc - info.LastWriteTimeUtc).TotalDays)); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-                { reason = "File metadata is unreadable: " + ex.Message; safe = false; size = null; }
-            }
-            var entry = new CleanupPreviewEntry(path, ageDays, size, false, reason, gameName);
+            var ageDays = stamp is null ? (int?)null : Math.Max(0, (int)Math.Floor((nowUtc - stamp.LastWriteUtc).TotalDays));
+            var entry = new CleanupPreviewEntry(path, ageDays, stamp?.SizeBytes, false, reason, gameName)
+            { CanDelete = safe && stamp is not null, FileStamp = stamp };
             if (safe) eligible.Add(entry); else entries.Add(entry);
         }
 
@@ -201,23 +208,10 @@ public static class CleanupPreviewBuilder
         return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && !string.Equals(path, root, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string? TryGetAbsolutePath(string? path)
+    internal static string? TryGetAbsolutePath(string? path)
     {
         try { return !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path) ? Path.GetFullPath(path) : null; }
         catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException) { return null; }
-    }
-
-    private static bool HasReparsePoint(string path)
-    {
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return true;
-        var current = Path.GetDirectoryName(path);
-        while (current is not null)
-        {
-            // A link above the configured root also makes lexical containment inconclusive.
-            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) return true;
-            current = Path.GetDirectoryName(current);
-        }
-        return false;
     }
 
 }
