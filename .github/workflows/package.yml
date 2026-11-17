@@ -60,4 +60,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: gh release create "$env:GITHUB_REF_NAME" --title "Meh Tools $env:GITHUB_REF_NAME" --generate-notes "artifacts/MehTools-$env:VERSION-win-x64.zip" "artifacts/installer/MehTools-setup-$env:VERSION-win-x64.exe"
+        run: |
+          $setup = "MehTools-setup-$env:VERSION-win-x64.exe"
+          $portable = "MehTools-$env:VERSION-win-x64.zip"
+          $downloads = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME"
+          @"
+          ## Download for Windows
+
+          - [Download the Windows installer]($downloads/$setup). Run it and keep **Launch Meh Tools** checked.
+          - [Download the portable ZIP]($downloads/$portable). Extract the whole archive and open **MehTools.exe**.
+
+          On first launch, choose **Record my games** to set up OBS or **Monitor performance** to try the on-screen monitor.
+          "@ | Set-Content artifacts/release-notes.md -Encoding utf8
+          gh release create "$env:GITHUB_REF_NAME" --title "Meh Tools $env:GITHUB_REF_NAME" --generate-notes --notes-file artifacts/release-notes.md "artifacts/$portable" "artifacts/installer/$setup"

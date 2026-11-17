@@ -18,11 +18,12 @@ AppVerName={#AppName} {#AppVersion}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
+DisableReadyPage=yes
 PrivilegesRequired=lowest
 MinVersion=10.0.19041
+ArchitecturesAllowed=x64compatible
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
-LicenseFile=..\LICENSE
 SetupIconFile=..\src\JamesTools\Assets\MehTools.ico
 OutputDir=..\artifacts\installer
 OutputBaseFilename=MehTools-setup-{#AppVersion}-win-x64
@@ -36,8 +37,6 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\artifacts\publish\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
-Source: "..\third_party\PresentMon\PresentMon.exe"; DestDir: "{app}\tools\PresentMon"; Flags: ignoreversion
-Source: "..\third_party\PresentMon\LICENSE.txt"; DestDir: "{app}\tools\PresentMon"; DestName: "LICENSE-PresentMon.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"

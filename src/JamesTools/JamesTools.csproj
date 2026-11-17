@@ -23,6 +23,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\third_party\PresentMon\PresentMon.exe">
       <Link>tools\PresentMon\PresentMon.exe</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -63,8 +63,7 @@ public sealed class ObsRecorder : IDisposable
                 if (gamePid <= 0 || string.IsNullOrWhiteSpace(gameExePath)) return Failed("Select a running game first.");
                 var obsPath = FullPath(settings.ExecutablePath, "OBS executable");
                 var obsName = Path.GetFileName(obsPath);
-                if (!obsName.Equals("obs64.exe", StringComparison.OrdinalIgnoreCase) &&
-                    !obsName.Equals("obs32.exe", StringComparison.OrdinalIgnoreCase))
+                if (!ObsDiscovery.IsObsExecutable(obsName))
                     return Failed("Select an OBS Studio executable named obs64.exe or obs32.exe.");
                 if (!File.Exists(obsPath)) return Failed("The selected OBS executable does not exist.");
                 var workingDirectory = Path.GetDirectoryName(obsPath) ?? throw new InvalidDataException("The OBS executable folder is invalid.");
@@ -143,6 +142,20 @@ public sealed class ObsRecorder : IDisposable
         CaptureMode.Both => ["--startrecording", "--startreplaybuffer"],
         _ => throw new ArgumentOutOfRangeException(nameof(mode), "Choose recording, replay, or both for capture mode.")
     };
+
+    /// <summary>Checks capture setup without starting OBS or applying changes to its configuration.</summary>
+    public static void CheckSetupForGame(string executable, DiscoveredObs configuration, string directory,
+        string gameExecutable, CaptureMode captureMode, int replayBufferSeconds)
+    {
+        var obsPath = FullPath(executable, "OBS executable");
+        if (!ObsDiscovery.IsObsExecutable(Path.GetFileName(obsPath)) || !File.Exists(obsPath))
+            throw new InvalidDataException("Choose an existing OBS Studio executable named obs64.exe or obs32.exe.");
+        ValidateConfigRoot(configuration.ConfigRoot, Path.GetDirectoryName(obsPath)!, configuration.Portable);
+        var recordingDirectory = FullPath(directory, "recording folder");
+        CheckRecordingDirectory(recordingDirectory);
+        _ = ObsConfiguration.Prepare(configuration.ConfigRoot, recordingDirectory, 0, gameExecutable,
+            (_, _) => null, captureMode, replayBufferSeconds);
+    }
 
     /// <summary>Requests a normal OBS close and waits up to 20 seconds. Never force-kills OBS.</summary>
     public Task<bool> StopOwnedAsync()

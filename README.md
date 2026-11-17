@@ -2,6 +2,14 @@
 
 A small Windows desktop companion for game recording, NVIDIA digital vibrance, and Windows power plans. It watches for games locally and applies only the features you enable.
 
+## Install and get started
+
+1. Open the [latest release](https://github.com/rogersau/MehTools/releases/latest) and download **`MehTools-setup-<version>-win-x64.exe`** under **Assets**.
+2. Run the installer and keep **Launch Meh Tools** checked. You can also open **Meh Tools** from the Start menu. The installer works per user and includes the .NET Desktop Runtime.
+3. On **Overview**, choose **Record my games** to set up OBS and your first game, or choose **Monitor performance** and click **Show monitor** to try the app right away. Watching starts off. You can return to the welcome screen from **Settings → Show getting started**.
+
+The installer supports Windows 10 version 2004 or later and Windows 11 on systems that can run x64 apps. For a portable copy, download `MehTools-<version>-win-x64.zip`, extract the entire archive, and open `MehTools.exe` in the extracted folder. Both editions use your local settings in `%LOCALAPPDATA%\JamesTools`, which are kept on uninstall.
+
 ## What it does
 
 - Starts an existing OBS Studio installation in recording, replay-buffer, or combined mode when a selected game's executable is running, and asks that OBS instance to close after the game ends.
@@ -18,20 +26,17 @@ Meh Tools includes a separate, headless MCP server for read-only system diagnost
 
 See the [MCP setup, tool reference and testing guide](docs/mcp.md) and [architecture overview](docs/mcp-architecture.md). Open **Settings → MCP diagnostics…** to configure access and view server status. Sensor support depends on the hardware and driver; unavailable readings remain explicitly unavailable.
 
-## Requirements
+## Feature requirements
 
-- 64-bit Windows 10 (build 19041 / version 2004 or later) or Windows 11.
-- The [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0), unless using a self-contained build.
-- OBS Studio on Windows, already configured with an active scene containing a **visible Game Capture** source. Portable and standard installations are supported.
-- An NVIDIA GPU and NVIDIA-controlled displays for digital vibrance. Power and recording controls work independently of NVIDIA.
+- Automatic recording uses OBS Studio with a **visible Game Capture** source in the active scene. Both standard and portable OBS installations work. Close OBS before playing to let Meh Tools manage the capture.
+- Digital vibrance requires an NVIDIA GPU and NVIDIA-controlled displays. Power and recording controls work independently of NVIDIA.
 
-## Getting started
+## Configure additional games and automation
 
-1. Launch Meh Tools. Automation starts paused on a new installation.
-2. In **Games**, add a running Steam game or browse for its actual executable, then enable **Capture**, **Vibrance**, or both. The path must match the executable that runs during the game, which may differ from its launcher.
-3. In **Recording**, select OBS, its configuration folder, and a recording folder. The app tries to discover the configuration folder when you choose OBS. For portable OBS, it is normally `<OBS folder>\config\obs-studio`; for a standard installation it is normally `%APPDATA%\obs-studio`.
-4. Choose your vibrance values and Windows power plans. Enable each feature you want, then **Save** and **Start watching** on the Overview.
-5. Optionally enable **Start with Windows** in Settings. Closing the window leaves the app in the notification area by default; there is also an option to minimize to the notification area instead of the taskbar. Use the tray menu to quit.
+1. In **Games**, add an open game or browse for its actual executable. Select **Record**, **Colours**, or both for each game you want to automate. Choose the executable that runs during play, which may differ from the launcher.
+2. Use **Recording** for manual OBS setup or to change the video folder. When you select the OBS executable, Meh Tools looks for its settings. They are usually in `<OBS folder>\config\obs-studio` for portable OBS and `%APPDATA%\obs-studio` for a standard install.
+3. Enable the features you want in **Recording**, **Colours**, and **Power**, then select **Start watching** on **Overview** to save and apply them. Use **Save** to apply changes if watching is already on.
+4. In **Settings**, you can enable **Start with Windows**. Closing the window leaves Meh Tools in the notification area by default. Use the tray menu to quit.
 
 Select a game row and expand **Advanced options for the selected game** to choose recording, replay buffer, or both, and change matching, its power plan, colour strength, or stop delay. Blank colour and delay overrides use the global defaults. On **Recording**, set the replay buffer maximum (15–600 seconds) and the global **Save clip** hotkey (default **Ctrl+Alt+F10**; blank disables it). Use **Save** or **Ctrl+S** to keep changes. The Recording page includes **Check OBS setup** to help find setup problems before playing.
 
@@ -92,12 +97,6 @@ The same page can preview cleanup suggestions from recording attachments already
 On **Performance**, select **Show monitor** for CPU and GPU readings; select a game to add FPS and frame measurements. Meh Tools includes a bundled [Intel PresentMon](https://github.com/GameTechDev/PresentMon) console capture tool (used when available) for FPS/frame metrics; you can also choose a custom PresentMon executable if needed. Drag the monitor by its heading; close it with × or **Hide monitor**. It keeps running when the main window is minimized to the tray. CPU and NVIDIA GPU readings work without PresentMon or a selected game, including when PresentMon fails to start. Reopen the monitor to apply a different game or executable.
 
 The monitor samples system-wide CPU and the first NVIDIA GPU about once a second. GPU usage requires a working NVIDIA driver with NVML; unsupported readings show a dash. PresentMon (bundled or custom) matches the executable name, so identically named processes can be included. FPS is derived from measured frame intervals, and frame latency is PresentMon's frame-start-to-display latency, not input-to-photon latency. Frame readings show a dash when no valid data arrives, including when PresentMon cannot capture the game. PresentMon may require additional Windows permissions (e.g. ETW access). The monitor is a topmost desktop window, so games in exclusive fullscreen can cover it; use borderless windowed mode for best results. Performance reports can include PresentMon frame pacing summaries when PresentMon and a target game are available. When opening the monitor or starting a report, Meh Tools resolves the selected game's actual executable from one observed process snapshot using the game's matching rule. If no unique accessible executable is found, it starts without a PresentMon target and reports why; choose/reopen the monitor or restart the report after the game appears or its executable changes. Reports and sessions still use the configured game's canonical path as identity.
-
-## Install
-
-Download `MehTools-setup-<version>-win-x64.exe` from the [latest release](https://github.com/rogersau/MehTools/releases/latest) and run it. The installer is per user, needs no administrator rights, adds a Start-menu shortcut (and an optional desktop icon), and includes an uninstaller that also removes the app's "Start with Windows" entry. Your settings in `%LOCALAPPDATA%\JamesTools` are kept on uninstall.
-
-Prefer no install? Download `MehTools-<version>-win-x64.zip` and run `MehTools.exe` from the folder, keeping its files together.
 
 ## Build and test
 

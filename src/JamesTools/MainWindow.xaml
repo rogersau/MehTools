@@ -65,6 +65,23 @@
                 <TabItem Header="Overview">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Margin="0,0,8,0">
+                            <Border x:Name="GettingStartedCard" Style="{StaticResource Card}" Visibility="Collapsed">
+                                <StackPanel>
+                                    <TextBlock Text="Welcome to Meh Tools" FontSize="22" FontWeight="SemiBold"/>
+                                    <WrapPanel Margin="0,12,0,0">
+                                        <Button Content="Record my games" Click="GettingStartedRecording_Click" Style="{StaticResource AccentButton}"/>
+                                        <Button Content="Monitor performance" Click="GettingStartedPerformance_Click"/>
+                                        <Button Content="Set up colours" Click="GettingStartedColours_Click"/>
+                                        <Button Content="Set up power plans" Click="GettingStartedPower_Click"/>
+                                    </WrapPanel>
+                                    <TextBlock Text="Recording uses OBS Studio. You can use the performance monitor right away, even with watching off."
+                                               Style="{StaticResource Hint}" Margin="0,8,0,10"/>
+                                    <WrapPanel>
+                                        <Button Content="Import existing settings…" Click="GettingStartedImport_Click"/>
+                                        <Button Content="Dismiss welcome" Click="DismissGettingStarted_Click"/>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
                             <Border Background="#1D3434" BorderBrush="#34554D" BorderThickness="1" CornerRadius="9" Padding="22" Margin="0,0,0,14">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -675,6 +692,7 @@
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="App settings" FontSize="17" FontWeight="SemiBold"/>
+                                <Button Content="Show getting started" Click="ShowGettingStarted_Click" HorizontalAlignment="Left" Margin="0,12,0,0"/>
                                 <Button Content="MCP configuration &amp; status…" Click="McpSettings_Click" HorizontalAlignment="Left" Margin="0,12,0,0"/>
                                 <CheckBox Content="Start with Windows" IsChecked="{Binding StartWithWindows}" Margin="0,16,0,4"/>
                                 <CheckBox Content="Keep running in the tray when I close the window" IsChecked="{Binding MinimizeToTray}"/>
