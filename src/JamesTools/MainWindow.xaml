@@ -675,6 +675,7 @@
                         <StackPanel Margin="0,0,8,0">
                             <Border Style="{StaticResource Card}"><StackPanel>
                                 <TextBlock Text="App settings" FontSize="17" FontWeight="SemiBold"/>
+                                <Button Content="MCP configuration &amp; status…" Click="McpSettings_Click" HorizontalAlignment="Left" Margin="0,12,0,0"/>
                                 <CheckBox Content="Start with Windows" IsChecked="{Binding StartWithWindows}" Margin="0,16,0,4"/>
                                 <CheckBox Content="Keep running in the tray when I close the window" IsChecked="{Binding MinimizeToTray}"/>
                                 <CheckBox Content="Minimize to the tray instead of the taskbar" IsChecked="{Binding TrayOnMinimize}"/>

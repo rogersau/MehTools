@@ -10,7 +10,11 @@ namespace JamesTools.Core.Diagnostics;
 public sealed class LiveHardwareSampler : IDisposable
 {
     private (ulong Idle, ulong Kernel, ulong User)? _previous;
-    private readonly NvidiaTelemetry _nvidia = new();
+    private readonly NvidiaTelemetry _nvidia;
+    private readonly bool _ownsNvidia;
+
+    public LiveHardwareSampler() { _nvidia = new(); _ownsNvidia = true; }
+    internal LiveHardwareSampler(NvidiaTelemetry nvidia) => _nvidia = nvidia;
 
     public (double? Cpu, double? Gpu) Sample()
     {
@@ -29,7 +33,7 @@ public sealed class LiveHardwareSampler : IDisposable
         return (cpu, gpu);
     }
 
-    public void Dispose() => _nvidia.Dispose();
+    public void Dispose() { if (_ownsNvidia) _nvidia.Dispose(); }
 
     private static ulong ToUInt64(System.Runtime.InteropServices.ComTypes.FILETIME value) => ((ulong)(uint)value.dwHighDateTime << 32) | (uint)value.dwLowDateTime;
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
