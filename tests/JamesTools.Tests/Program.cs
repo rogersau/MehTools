@@ -44,6 +44,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("exact game matching and Steam path boundaries", Tests.MatchProcesses),
     ("executable aliases, diagnostics, and path validation", Tests.ExecutableAliases),
     ("detects a selected portable OBS configuration", Tests.DetectPortableObs),
+    ("checks first recording setup without applying OBS changes", Tests.CheckRecordingSetup),
     ("OBS retarget preserves tracks and rolls back", Tests.ObsRetargetAndRollback),
     ("OBS replay profile changes preserve audio and roll back", Tests.ObsReplayConfiguration),
     ("OBS waits for a window without changing files", Tests.ObsWaitsForWindow),
@@ -144,6 +145,7 @@ internal static class Tests
         var store = new SettingsStore(temp.Path);
         var settings = Settings();
         settings.TrayOnMinimize = true;
+        settings.ShowGettingStarted = true;
         settings.ObsWebSocketPort = 4456;
         settings.ReplayBufferSeconds = 95;
         settings.SaveClipHotkey = "Ctrl+Shift+F9";
@@ -168,12 +170,14 @@ internal static class Tests
         Assert(loaded.GameVibrance == 72, "latest setting not saved");
         Assert(loaded.SchemaVersion == 2, "settings not upgraded to schema 2");
         Assert(loaded.TrayOnMinimize, "minimize-to-tray option was not saved");
+        Assert(copy.ShowGettingStarted && loaded.ShowGettingStarted, "welcome preference did not survive snapshot and save");
         Assert(loaded.Games[1].VibrancePercent == 90 && loaded.Games[1].RecordingStopDelaySeconds == 20, "per-game overrides were not saved");
         Assert(loaded.ObsWebSocketPort == 4456, "OBS WebSocket port was not saved");
         Assert(loaded.ReplayBufferSeconds == 95 && loaded.SaveClipHotkey == "Ctrl+Shift+F9" && loaded.StutterMarkerHotkey == "Ctrl+Shift+F8" && loaded.Games[1].CaptureMode == CaptureMode.Both,
             "replay settings did not round trip");
         Assert(loaded.Profiles.Count == 1 && loaded.Games[1].ProfileId == loaded.Profiles[0].Id, "profiles did not round trip");
         var legacy = store.Deserialize("{\"SchemaVersion\":2,\"Games\":[{\"Name\":\"Old\",\"ExecutablePath\":\"C:\\\\Games\\\\old.exe\"}]}");
+        Assert(!legacy.ShowGettingStarted, "existing users unexpectedly see the first-run screen");
         Assert(legacy.Games[0].Record && legacy.Games[0].CaptureMode is null && EffectiveGameOptionsResolver.Resolve(legacy, legacy.Games[0]).CaptureMode == CaptureMode.Recording && legacy.ReplayBufferSeconds == 60 && legacy.SaveClipHotkey == "Ctrl+Alt+F10" && legacy.StutterMarkerHotkey == "Ctrl+Alt+F9",
             "legacy settings did not receive backward-compatible defaults");
         Assert(File.Exists(store.SettingsPath + ".bak"), "old settings were not backed up");
@@ -437,6 +441,10 @@ internal static class Tests
             new RunningProcess(3, "CrashReportClient.exe", root + @"\CrashReportClient.exe") };
         Assert(SteamGameDetector.FindRunning(catalog, processes).Count == 1, "game was not detected");
         Assert(SteamGameDetector.FindRunning(catalog, processes.Skip(1).ToArray()).Count == 0, "helper or adjacent path was treated as a game");
+        var libraries = new[] { new LibraryGame("Example", root, "Steam") };
+        var choices = LibraryGameDetector.FindRunningProcesses(libraries, processes.Reverse().ToArray());
+        Assert(choices.Count == 1 && choices[0].ExecutablePath == processes[0].FullPath,
+            "game picker chose a helper or an executable outside the game folder");
         return Task.CompletedTask;
     }
 
@@ -490,6 +498,24 @@ internal static class Tests
         var prepared = ObsConfiguration.Prepare(fixture.Root, fixture.Recordings, 123, @"C:\Games\NewGame.exe", (_, _) => null);
         Assert(prepared.WaitingForWindow && prepared.Transaction is null, "should wait for the game window");
         Assert(before.SequenceEqual(File.ReadAllBytes(fixture.Scene)), "scene was modified while waiting");
+        return Task.CompletedTask;
+    }
+
+    public static Task CheckRecordingSetup()
+    {
+        using var ready = new ObsFixture();
+        var configuration = ObsDiscovery.FromExecutable(ready.Executable)!;
+        var profile = File.ReadAllBytes(ready.Profile);
+        var scene = File.ReadAllBytes(ready.Scene);
+        foreach (var path in new[] { @"C:\Games\Old.exe", @"C:\Games\NewGame.exe" })
+            ObsRecorder.CheckSetupForGame(ready.Executable, configuration, ready.Recordings, path, CaptureMode.Recording, 60);
+        Assert(profile.SequenceEqual(File.ReadAllBytes(ready.Profile)) && scene.SequenceEqual(File.ReadAllBytes(ready.Scene)),
+            "setup edited the OBS profile or scene before watching started");
+        Assert(!Directory.EnumerateFileSystemEntries(ready.Recordings).Any(), "the folder check left a temporary file behind");
+
+        using var hidden = new ObsFixture(visible: false);
+        AssertThrows<InvalidDataException>(() => ObsRecorder.CheckSetupForGame(hidden.Executable,
+            ObsDiscovery.FromExecutable(hidden.Executable)!, hidden.Recordings, @"C:\Games\NewGame.exe", CaptureMode.Recording, 60));
         return Task.CompletedTask;
     }
 
@@ -1034,12 +1060,16 @@ internal sealed class FakeRecorder : IRecordingController
 internal sealed class ObsFixture : IDisposable
 {
     private readonly TempDirectory _temp = new();
-    public string Root => _temp.Path;
+    public string Root => System.IO.Path.Combine(_temp.Path, "config", "obs-studio");
+    public string Executable { get; }
     public string Recordings { get; }
     public string Profile { get; }
     public string Scene { get; }
     public ObsFixture(bool visible = true)
     {
+        var bin = Directory.CreateDirectory(System.IO.Path.Combine(_temp.Path, "bin", "64bit"));
+        Executable = System.IO.Path.Combine(bin.FullName, "obs64.exe");
+        File.WriteAllText(Executable, "");
         Recordings = System.IO.Path.Combine(Root, "recordings");
         Profile = System.IO.Path.Combine(Root, "basic", "profiles", "Test", "basic.ini");
         Scene = System.IO.Path.Combine(Root, "basic", "scenes", "Test.json");

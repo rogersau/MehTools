@@ -47,7 +47,7 @@ public partial class MainWindow : Window
         string? initialMessage = null;
         try
         {
-            _settings = _store.Load() ?? new AppSettings();
+            _settings = _store.Load() ?? new AppSettings { ShowGettingStarted = true };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
         {
@@ -82,6 +82,7 @@ public partial class MainWindow : Window
             GamePowerPlanOptions.Add(new PowerPlanOption(null, "Default"));
         }
         DataContext = _settings;
+        GettingStartedCard.Visibility = _settings.ShowGettingStarted ? Visibility.Visible : Visibility.Collapsed;
         RefreshVibranceDisplays();
         RefreshGameProfileOptions();
         InitializeRecordingPanel();
@@ -113,7 +114,7 @@ public partial class MainWindow : Window
         _automation.Start();
         RefreshSessionList();
         SourceInitialized += (_, _) => { ApplyOverlayHotkey(); ApplySaveClipHotkey(); ApplyStutterMarkerHotkey(); ApplyBookmarkHotkey(); ApplyRollingHotkey(); };
-        AddActivity(initialMessage ?? "Ready. Add your games, then click Save.");
+        AddActivity(initialMessage ?? "Ready.");
         if (initialMessage is not null) StatusNotice.Text = initialMessage;
     }
 
@@ -216,7 +217,7 @@ public partial class MainWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e) => SaveSettings();
 
-    private bool SaveSettings()
+    private bool SaveSettings(Window? errorOwner = null)
     {
         if (_saving) return false;
         _saving = true;
@@ -250,7 +251,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Security.SecurityException or ArgumentException)
         {
-            MessageBox.Show(this, ex.Message, "Couldn't save settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(errorOwner ?? this, ex.Message, "Couldn't save settings", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
         finally { _saving = false; }
@@ -488,69 +489,23 @@ public partial class MainWindow : Window
 
     private void AddGame_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new Microsoft.Win32.OpenFileDialog { Filter = "Applications (*.exe)|*.exe", Title = "Choose a game file" };
-        if (picker.ShowDialog(this) != true) return;
-        AddGame(Path.GetFileNameWithoutExtension(picker.FileName), picker.FileName);
+        if (GamePicker.Browse(this) is { } game) AddGame(game.Name, game.Path);
     }
 
     private async void AddRunningGame_Click(object sender, RoutedEventArgs e)
     {
-        var button = sender as System.Windows.Controls.Button;
-        if (button is not null) button.IsEnabled = false;
+        var button = (System.Windows.Controls.Button)sender;
+        button.IsEnabled = false;
         try
         {
-            var choices = await Task.Run(() =>
-            {
-                var options = new AppDetectionOptions(true, _settings.DetectEpicGames, _settings.DetectGogGames, _settings.DetectEaGames, _settings.DetectUbisoftGames, _settings.DetectXboxGames);
-                var catalog = LibraryGameDetector.Discover(options);
-                var processes = ProcessSnapshot.Capture().Where(p => p.FullPath is not null).ToArray();
-                var running = LibraryGameDetector.FindRunning(catalog, processes);
-                // Prefer the actual running process path within matched roots.
-                var list = new List<RunningGameChoice>();
-                foreach (var game in running)
-                {
-                    var proc = processes.FirstOrDefault(p => p.FullPath is not null && p.FullPath.StartsWith(game.RootDirectory, StringComparison.OrdinalIgnoreCase));
-                    if (proc?.FullPath is not null) list.Add(new RunningGameChoice(game.Name + " (" + game.Source + ")", proc.FullPath));
-                }
-                return list.DistinctBy(item => item.Path, StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray();
-            });
-            if (choices.Length == 0)
-            {
-                MessageBox.Show(this, "No open detected game found. Open the game first, enable more launchers in Power settings, or use Browse for game.",
-                    "No open game found", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-            var dialog = new Window
-            {
-                Owner = this, Title = "Choose an open game", Width = 760, Height = 400,
-                MinWidth = 540, MinHeight = 300, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Background = (System.Windows.Media.Brush)FindResource("BackgroundBrush"),
-                Foreground = (System.Windows.Media.Brush)FindResource("TextBrush")
-            };
-            WindowTheme.Apply(dialog);
-            var layout = new DockPanel { Margin = new Thickness(20) };
-            var hint = new TextBlock { Text = "Pick the game you want to add.",
-                Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush"), Margin = new Thickness(0, 0, 0, 12), TextWrapping = TextWrapping.Wrap };
-            DockPanel.SetDock(hint, Dock.Top);
-            layout.Children.Add(hint);
-            var buttons = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal,
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
-            DockPanel.SetDock(buttons, Dock.Bottom);
-            var add = new System.Windows.Controls.Button { Content = "Add game", IsDefault = true, Style = (Style)FindResource("AccentButton") };
-            var cancel = new System.Windows.Controls.Button { Content = "Cancel", IsCancel = true, Margin = new Thickness(0) };
-            buttons.Children.Add(add); buttons.Children.Add(cancel); layout.Children.Add(buttons);
-            var list = new System.Windows.Controls.ListBox { ItemsSource = choices, SelectedIndex = 0,
-                BorderThickness = new Thickness(0), Padding = new Thickness(5) };
-            layout.Children.Add(list);
-            add.Click += (_, _) => { if (list.SelectedItem is RunningGameChoice) dialog.DialogResult = true; };
-            dialog.Content = layout;
-            if (dialog.ShowDialog() == true && list.SelectedItem is RunningGameChoice selected)
-                AddGame(selected.Name, selected.Path);
+            if (await GamePicker.PickRunningAsync(this, GameDetectionOptions()) is { } game)
+                AddGame(game.Name, game.Path);
         }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Couldn't find open games", MessageBoxButton.OK, MessageBoxImage.Warning); }
-        finally { if (button is not null) button.IsEnabled = true; }
+        finally { button.IsEnabled = true; }
     }
+
+    private AppDetectionOptions GameDetectionOptions() =>
+        new(true, _settings.DetectEpicGames, _settings.DetectGogGames, _settings.DetectEaGames, _settings.DetectUbisoftGames, _settings.DetectXboxGames);
 
     private void AddGame(string name, string path)
     {
@@ -560,11 +515,6 @@ public partial class MainWindow : Window
             return;
         }
         _settings.Games.Add(new GameRule { Name = name, ExecutablePath = path });
-    }
-
-    private sealed record RunningGameChoice(string Name, string Path)
-    {
-        public override string ToString() => $"{Name}  —  {System.IO.Path.GetFileName(Path)}    {Path}";
     }
 
     private void RemoveGame_Click(object sender, RoutedEventArgs e)
@@ -841,7 +791,8 @@ public partial class MainWindow : Window
         foreach (var prop in typeof(AppSettings).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
         {
             if (!prop.CanRead || !prop.CanWrite) continue;
-            if (prop.Name is nameof(AppSettings.Games) or nameof(AppSettings.Profiles) or nameof(AppSettings.AppsToCloseOnGameLaunch) or nameof(AppSettings.AutomationEnabled)) continue;
+            if (prop.Name is nameof(AppSettings.Games) or nameof(AppSettings.Profiles) or nameof(AppSettings.AppsToCloseOnGameLaunch) or
+                nameof(AppSettings.AutomationEnabled) or nameof(AppSettings.ShowGettingStarted)) continue;
             prop.SetValue(_settings, prop.GetValue(imported));
         }
         _settings.Games.Clear();

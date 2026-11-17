@@ -105,8 +105,45 @@ internal static class UiAudit
         Set(review, "selected", null!); await Close(review);
         await CloseLifecycle(data);
         await Controls();
+        await AuditRecordingSetup(data);
         AuditMainPages(game);
         Console.WriteLine($"PASS {layouts} synthetic window/page layouts, shared dark surfaces and minimum-size content");
+    }
+
+    static async Task AuditRecordingSetup(string data)
+    {
+        var empty = new RecordingSetupWindow(null, null, null, (_, _) => throw new Exception("Incomplete setup reached Save"));
+        Render(empty, "recording-setup", 618, 620);
+        Render(empty, "recording-setup-small", 448, 390);
+        var saveCaption = "Save and start watching";
+        Tree((DependencyObject)empty.Content).OfType<Button>().Single(b => Equals(b.Content, saveCaption)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(empty.FindName("SetupError") is TextBlock { Visibility: Visibility.Visible, Text: "Choose an existing game executable first." },
+            "Incomplete recording setup did not show an actionable error");
+        await Close(empty);
+
+        var install = Path.Combine(data, "portable-obs");
+        var executable = Path.Combine(Directory.CreateDirectory(Path.Combine(install, "bin", "64bit")).FullName, "obs64.exe");
+        var config = Directory.CreateDirectory(Path.Combine(install, "config", "obs-studio")).FullName;
+        var folder = Directory.CreateDirectory(Path.Combine(data, "recordings")).FullName;
+        var game = new GameChoice("Example", Path.Combine(data, "Example.exe"));
+        File.WriteAllText(executable, "");
+        File.WriteAllText(game.Path, "");
+        RecordingSetupSelection? selected = null;
+        var ready = new RecordingSetupWindow(game, executable, folder, (selection, _) => { selected = selection; return true; })
+        {
+            ShowActivated = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = -20000
+        };
+        Render(ready, "recording-setup-filled", 618, 620);
+        var save = Tree((DependencyObject)ready.Content).OfType<Button>().Single(b => Equals(b.Content, saveCaption));
+        _ = ready.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+        {
+            save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (ready.IsVisible) ready.Close();
+        }));
+        Check(ready.ShowDialog() == true && selected?.Game == game && selected.ObsExecutable == executable &&
+            selected.Obs is { Portable: true } && selected.Obs.ConfigRoot == config && selected.RecordingDirectory == folder,
+            "The first-recording setup did not submit the chosen game, folder and detected portable OBS configuration");
+        Console.WriteLine("PASS first-recording setup errors, detected OBS paths and Save action");
     }
     static async Task CloseLifecycle(string data)
     {
@@ -198,6 +235,11 @@ internal static class UiAudit
             Render(main, "main-" + page.Header, 1148, 760);
             Render(main, "main-" + page.Header, 948, 650);
         }
+        pages.SelectedIndex = 0;
+        ((ListBox)main.FindName("Navigation")).SelectedIndex = 0;
+        ((TextBlock)main.FindName("PageTitle")).Text = "Overview";
+        ((UIElement)main.FindName("GettingStartedCard")).Visibility = Visibility.Visible;
+        Render(main, "main-first-run", 948, 650);
         pages.SelectedIndex = 3; ((FrameworkElement)main.Content).UpdateLayout();
         var targeting = (ComboBox)main.FindName("VibranceTargetBox"); var display = (ComboBox)main.FindName("VibranceDisplayBox");
         Check(targeting.Items.Count == 3 && display.Items.Count == 1, "Colour selectors do not resolve view-owned option lists");

@@ -8,6 +8,7 @@ public sealed class AppSettings
     public LiveWardogsSettings LiveWardogs { get; set; } = new();
     public int SchemaVersion { get; set; } = 2;
     public bool AutomationEnabled { get; set; }
+    public bool ShowGettingStarted { get; set; }
     public bool StartWithWindows { get; set; }
     public bool MinimizeToTray { get; set; } = true;
     public bool TrayOnMinimize { get; set; }
@@ -93,6 +94,7 @@ public sealed class AppSettings
         NetworkTargets = NetworkTargets,
         MediaToolsFolder = MediaToolsFolder,
         AutomationEnabled = AutomationEnabled,
+        ShowGettingStarted = ShowGettingStarted,
         StartWithWindows = StartWithWindows,
         MinimizeToTray = MinimizeToTray,
         TrayOnMinimize = TrayOnMinimize,

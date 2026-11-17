@@ -1,3 +1,5 @@
+using JamesTools.Core.Platform;
+
 namespace JamesTools.Core.Recording;
 
 public sealed record DiscoveredObs(string ConfigRoot, bool Portable, string? RecordingDirectory);
@@ -5,6 +7,24 @@ public sealed record DiscoveredObs(string ConfigRoot, bool Portable, string? Rec
 /// <summary>Finds a selected OBS installation's configuration without modifying it.</summary>
 public static class ObsDiscovery
 {
+    public static string? FindExecutable()
+    {
+        var running = ProcessSnapshot.Capture().FirstOrDefault(process =>
+            process.FullPath is not null && IsObsExecutable(process.Name) && File.Exists(process.FullPath));
+        if (running is not null) return running.FullPath;
+
+        return new[] { Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86 }
+            .Select(folder => Environment.GetFolderPath(folder))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .SelectMany(root => new[] { Path.Combine(root, "obs-studio", "bin", "64bit", "obs64.exe"),
+                Path.Combine(root, "obs-studio", "bin", "32bit", "obs32.exe") })
+            .FirstOrDefault(File.Exists);
+    }
+
+    internal static bool IsObsExecutable(string fileName) =>
+        fileName.Equals("obs64.exe", StringComparison.OrdinalIgnoreCase) ||
+        fileName.Equals("obs32.exe", StringComparison.OrdinalIgnoreCase);
+
     public static DiscoveredObs? FromExecutable(string executable)
     {
         if (string.IsNullOrWhiteSpace(executable) || !Path.IsPathFullyQualified(executable)) return null;

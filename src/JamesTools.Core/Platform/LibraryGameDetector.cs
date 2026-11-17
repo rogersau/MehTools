@@ -19,13 +19,19 @@ public static class LibraryGameDetector
         return games.Values.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    public static IReadOnlyList<LibraryGame> FindRunning(IReadOnlyList<LibraryGame> catalog, IReadOnlyList<RunningProcess> processes)
+    public static IReadOnlyList<LibraryGame> FindRunning(IReadOnlyList<LibraryGame> catalog, IReadOnlyList<RunningProcess> processes) =>
+        FindRunningProcesses(catalog, processes).Select(match => match.Game)
+            .DistinctBy(game => Normalize(game.RootDirectory), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(game => game.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+
+    public static IReadOnlyList<(LibraryGame Game, string ExecutablePath)> FindRunningProcesses(
+        IReadOnlyList<LibraryGame> catalog, IReadOnlyList<RunningProcess> processes)
     {
         // Reuse Steam-style matching: process under game root, exclude obvious helpers by name heuristics minimal.
         var roots = catalog.Where(g => TryNormalize(g.RootDirectory, out _))
             .Select(g => (Game: g, Root: Normalize(g.RootDirectory)))
             .OrderByDescending(x => x.Root.Length).ToArray();
-        var matches = new Dictionary<string, LibraryGame>(StringComparer.OrdinalIgnoreCase);
+        var matches = new List<(LibraryGame Game, string ExecutablePath)>();
         foreach (var process in processes)
         {
             if (string.IsNullOrWhiteSpace(process.FullPath)) continue;
@@ -35,10 +41,12 @@ public static class LibraryGameDetector
             if (IsHelper(file)) continue;
             foreach (var (game, root) in roots)
             {
-                if (IsChild(path, root)) { matches.TryAdd(root, game); break; }
+                if (!IsChild(path, root)) continue;
+                matches.Add((game, path));
+                break;
             }
         }
-        return matches.Values.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        return matches;
     }
 
     private static void Add(Dictionary<string, LibraryGame> games, IEnumerable<LibraryGame> items)
