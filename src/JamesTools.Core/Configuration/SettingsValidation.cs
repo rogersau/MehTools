@@ -7,9 +7,21 @@ public static class SettingsValidation
         var errors = new List<string>();
         try { settings.Diagnostics.Validate(); } catch (ArgumentException ex) { errors.Add(ex.Message); }
         if (settings.LiveWardogs is null || !settings.LiveWardogs.IsValid) errors.Add("Live WARDOGS rate, budget or normalized crop is invalid.");
+        if (settings.LiveWardogs is { HighlightsValid: false }) errors.Add("Choose at least one WARDOGS highlight event and 3–10 seconds after an event.");
+        if (settings.SteamHighlights is not { } steam || !SteamHighlightSettings.ValidPadding(steam.BeforeSeconds, steam.AfterSeconds))
+            errors.Add("Steam highlights need 0–60 seconds before and after each event, with at least one side above zero.");
+        if (settings.SteamHighlights is { } steamFolders)
+        {
+            if (steamFolders.IncludedCategories == 0 && settings.Games.Any(steamFolders.AutoExportFor))
+                errors.Add("Choose at least one event type for automatic Steam highlights.");
+            if (!string.IsNullOrWhiteSpace(steamFolders.RecordingFolder) && !SteamHighlightSettings.IsLocalFolder(steamFolders.RecordingFolder.Trim()))
+                errors.Add("Steam recording folder must be an absolute local path, or blank to auto-detect.");
+            if (!string.IsNullOrWhiteSpace(steamFolders.OutputFolder) && !SteamHighlightSettings.IsLocalFolder(steamFolders.OutputFolder.Trim()))
+                errors.Add("Steam highlight output folder must be an absolute local path, or blank to use Videos.");
+        }
         try { Diagnostics.NetworkProbeOptions.Create(settings.NetworkDiagnosticsEnabled, settings.NetworkTargets); }
         catch (ArgumentException ex) { errors.Add(ex.Message); }
-        if (!string.IsNullOrWhiteSpace(settings.MediaToolsFolder) && (!Path.IsPathFullyQualified(settings.MediaToolsFolder) || !Directory.Exists(settings.MediaToolsFolder))) errors.Add("Media tools folder must be an existing absolute folder, or blank for PATH.");
+        if (!string.IsNullOrWhiteSpace(settings.MediaToolsFolder) && (!Path.IsPathFullyQualified(settings.MediaToolsFolder) || !Directory.Exists(settings.MediaToolsFolder))) errors.Add("Media tools folder must be an existing absolute folder, or blank for bundled tools/PATH.");
         if (settings.PollSeconds is < 2 or > 30) errors.Add("Check interval must be between 2 and 30 seconds.");
         if (settings.RecordingStopDelaySeconds is < 0 or > 120) errors.Add("Wait time before stopping must be between 0 and 120 seconds.");
         if (settings.ReplayBufferSeconds is < 15 or > 600) errors.Add("Replay buffer length must be between 15 and 600 seconds.");
@@ -22,7 +34,7 @@ public static class SettingsValidation
             errors.Add("Cleanup suggestion budget must be greater than 0 and at most 1,048,576 GiB, or blank to disable.");
         if (settings.ObsWebSocketPort is < 1 or > 65535) errors.Add("OBS WebSocket port must be between 1 and 65535.");
         if (settings.RollingBeforeSeconds is < 10 or > 300 || settings.RollingAfterSeconds is < 0 or > 60) errors.Add("Rolling capture requires 10–300 seconds before and 0–60 seconds after.");
-        var hotkeys = new[] { ("Rolling capture", settings.RollingHotkey), ("Bookmark", settings.BookmarkHotkey), ("Overlay", settings.OverlayHotkey), ("Save clip", settings.SaveClipHotkey), ("Stutter marker", settings.StutterMarkerHotkey) };
+        var hotkeys = new[] { ("Rolling capture", settings.RollingHotkey), ("Bookmark", settings.BookmarkHotkey), ("Save clip", settings.SaveClipHotkey), ("Stutter marker", settings.StutterMarkerHotkey) };
         foreach (var (label, hotkey) in hotkeys)
             if (!string.IsNullOrWhiteSpace(hotkey) && !ValidHotkey(hotkey)) errors.Add($"{label} hotkey is invalid. Use a key with a modifier, such as Ctrl+Alt+F9, or leave it blank.");
         var configuredHotkeys = hotkeys.Where(h => !string.IsNullOrWhiteSpace(h.Item2) && ValidHotkey(h.Item2)).ToArray();
@@ -51,11 +63,10 @@ public static class SettingsValidation
             else if (!profileIds.Add(profile.Id)) errors.Add($"{label}: profile ID is duplicated.");
             if (string.IsNullOrWhiteSpace(profile.Name)) errors.Add("Every game profile needs a name.");
             else if (!profileNames.Add(profile.Name.Trim())) errors.Add($"Game profile name '{profile.Name.Trim()}' is duplicated.");
-            if (profile.CaptureMode is CaptureMode capture && !Enum.IsDefined(capture)) errors.Add($"{label}: choose recording, replay, or both for capture mode.");
+            if (profile.CaptureMode is CaptureMode capture && !Enum.IsDefined(capture)) errors.Add($"{label}: choose a supported capture mode.");
             if (profile.ReplayBufferSeconds is int replay && replay is < 15 or > 600) errors.Add($"{label}: replay buffer length must be between 15 and 600 seconds.");
             if (profile.RecordingStopDelaySeconds is int delay && delay is < 0 or > 120) errors.Add($"{label}: wait time before stopping must be between 0 and 120 seconds.");
             if (profile.VibrancePercent is int vibrance && vibrance is < 0 or > 100) errors.Add($"{label}: vibrance must be between 0 and 100%.");
-            if (profile.OverlayPreset is OverlayPreset overlay && !Enum.IsDefined(overlay)) errors.Add($"{label}: choose a valid overlay preset.");
         }
 
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -63,8 +74,7 @@ public static class SettingsValidation
         foreach (var game in settings.Games)
         {
             var label = string.IsNullOrWhiteSpace(game.Name) ? "A game" : game.Name;
-            if (game.CaptureMode is CaptureMode capture && !Enum.IsDefined(capture)) errors.Add($"{label}: choose recording, replay, or both for capture mode.");
-            if (game.OverlayPreset is OverlayPreset overlay && !Enum.IsDefined(overlay)) errors.Add($"{label}: choose a valid overlay preset.");
+            if (game.CaptureMode is CaptureMode capture && !Enum.IsDefined(capture)) errors.Add($"{label}: choose a supported capture mode.");
             if (string.IsNullOrWhiteSpace(game.Name)) errors.Add("Every game needs a name.");
             if (!ExecutablePathRules.IsValidAbsoluteExecutable(game.ExecutablePath))
                 errors.Add($"Choose a full executable path for {label}.");

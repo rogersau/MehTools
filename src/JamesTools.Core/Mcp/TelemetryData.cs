@@ -105,6 +105,7 @@ internal static class TelemetryData
 
     internal static DiagnosticSession Copy(DiagnosticSession session, bool summary = false) => session with
     {
+        Investigation = summary || session.Investigation is null ? null : InvestigationRetention.Copy(session.Investigation),
         Samples = summary ? [] : session.Samples.Select(s => s with { Metrics = s.Metrics.ToArray(), Warnings = s.Warnings.ToArray() }).ToArray(),
         Statistics = session.Statistics.ToArray(), NotableEvents = summary ? [] : session.NotableEvents.ToArray(),
         Findings = summary ? [] : session.Findings.Select(f => f with { Evidence = f.Evidence.ToArray(), NextChecks = f.NextChecks.ToArray() }).ToArray(), Warnings = session.Warnings.ToArray()
@@ -134,6 +135,12 @@ internal static class TelemetryData
             s.NotableEvents is null || s.NotableEvents.Count > 32 || s.Findings is null || s.Findings.Count > 8 ||
             s.Warnings is null || s.Warnings.Count > 16 || s.Warnings.Any(w => w is null || w.Length > 256))
             throw new InvalidDataException("Invalid persisted diagnostic session.");
+        if (s.InvestigationOptions is { } options)
+        {
+            options.Validate(s.DurationSeconds);
+            if (s.Investigation is { } report) InvestigationRetention.Validate(report);
+        }
+        else if (s.Investigation is not null) throw new InvalidDataException("Investigation report requires explicit session options.");
         foreach (var sample in s.Samples)
         {
             if (sample is null || sample.SchemaVersion != 1 || !Utc(sample.TimestampUtc) || sample.Metrics is null || sample.Metrics.Count > MaxMetrics + 1 ||

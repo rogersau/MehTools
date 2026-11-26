@@ -5,7 +5,7 @@ using ModelContextProtocol.Server;
 namespace JamesTools.Mcp;
 
 [McpServerToolType]
-public sealed class DiagnosticTools(DiagnosticAccess access)
+public sealed partial class DiagnosticTools(DiagnosticAccess access)
 {
     [McpServerTool(Name = "get_system_info", UseStructuredContent = true, ReadOnly = true, OpenWorld = false)]
     [Description("Read system hardware/software inventory with source availability and limitations.")]
@@ -86,6 +86,10 @@ public sealed class DiagnosticResources(DiagnosticAccess access)
     [McpServerResource(UriTemplate = "meh://sessions", Name = "Diagnostic sessions", MimeType = "application/json")]
     [Description("Latest 100 session summaries without raw samples/events/findings. Use get_diagnostic_session for details.")]
     public async Task<string> Sessions(CancellationToken cancellationToken) => Serialize(await access.Sessions(cancellationToken));
+
+    [McpServerResource(UriTemplate = "meh://investigations", Name = "Stutter investigations", MimeType = "application/json")]
+    [Description("Retained explicit investigation session summaries. Use get_investigation_report and the paged evidence tools by ID.")]
+    public async Task<string> Investigations(CancellationToken cancellationToken) => Serialize((await access.Sessions(cancellationToken)).Where(s => s.InvestigationOptions is not null).ToArray());
 
     private static string Serialize<T>(T value) => System.Text.Json.JsonSerializer.Serialize(value, DiagnosticAccess.Json);
 }

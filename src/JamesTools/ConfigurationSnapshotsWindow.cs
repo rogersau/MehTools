@@ -20,56 +20,199 @@ public sealed class ConfigurationSnapshotsWindow : Window
     readonly GameRule game;
     readonly Action<string,string> openReport;
     readonly ListBox snapshots=new(){Height=120}, files=new(){Height=90}, reports=new(){Height=70};
-    readonly ComboBox other=new(){MinWidth=200};
-    readonly TextBox name=new(){Text="Configuration snapshot"}, output=new(){IsReadOnly=true,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+    readonly ComboBox other = new() { MinWidth = 200, DisplayMemberPath = "Label" };
+    readonly TextBox name = new() { Text = "Configuration snapshot" },
+        output = new() { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = 260 };
+    readonly Button compare = new() { Content = "Compare" };
+    readonly Button restore = new() { Content = "Restore reviewed file...", Visibility = Visibility.Collapsed };
+    readonly StackPanel selectedDetails = new();
+    ConfigSnapshot[] saved = [];
     RestorePlan? plan;
-    bool busy,closed;
-    public bool Busy=>busy;
+    bool busy, closed;
+    public bool Busy => busy;
     ConfigSnapshot Selected => snapshots.SelectedItem as ConfigSnapshot ?? throw new IOException("Select a snapshot.");
     string FilePath => files.SelectedItem as string ?? throw new IOException("Select one snapshot file.");
-    public ConfigurationSnapshotsWindow(ConfigSnapshotStore store,GameRule game,Action<string,string> openReport)
+    private sealed record CompareTarget(string Label, Guid? Snapshot);
+
+    public ConfigurationSnapshotsWindow(ConfigSnapshotStore store, GameRule game, Action<string, string> openReport)
     {
-        this.store=store; this.game=game.Copy();this.openReport=openReport;
+        this.store = store; this.game = game.Copy(); this.openReport = openReport;
         WindowTheme.Apply(this);
-        Title ="Configuration snapshots — "+game.Name;Width=950;Height=850;MinWidth=600;MinHeight=500;
-        var top=new StackPanel{Margin=new Thickness(12)};Content=new ScrollViewer{Content=top,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
-        output.Height=300;
-        top.Children.Add(new TextBlock{Text="Explicit local text files only • 10 files, 1 MiB each • restore one file while game is closed",TextWrapping=TextWrapping.Wrap});
-        var selection=new TextBlock{TextWrapping=TextWrapping.Wrap};top.Children.Add(selection);
-        void RefreshSelection()=>selection.Text="Current allowlist: "+string.Join("; ",store.Selection(game.ExecutablePath));
-        Button Button(string title,Func<Task> action) {var b=new Button{Content=title,Margin=new Thickness(2)};b.Click+=async(_,_)=>await OperationAsync(action);return b;}
-        top.Children.Add(Button("Select/replace config allowlist…",async()=>{var d=new OpenFileDialog{Multiselect=true,Filter="Text configurations|*.ini;*.cfg;*.conf;*.json;*.xml;*.yaml;*.yml;*.toml;*.txt|All files (unsupported formats rejected)|*.*"};if(d.ShowDialog(this)==true){await Task.Run(()=>store.Select(game.ExecutablePath,d.FileNames));RefreshSelection();}}));
-        void Label(string text) => top.Children.Add(new TextBlock { Text = text, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 5), TextWrapping = TextWrapping.Wrap });
-        Label("Snapshot name");top.Children.Add(name);top.Children.Add(Button("Create immutable snapshot",async()=>{var label=name.Text;var created=await Task.Run(()=>store.Create(game.ExecutablePath,label));Refresh(created.Id);}));
-        snapshots.DisplayMemberPath="Label";Label("Saved snapshots");top.Children.Add(snapshots);Label("Files in selected snapshot");top.Children.Add(files);
-        snapshots.SelectionChanged+=(_,_)=>{plan=null;if(snapshots.SelectedItem is ConfigSnapshot s){files.ItemsSource=s.Files.Select(f=>f.Path).ToArray();reports.ItemsSource=s.Reports.Select(p=>p+(System.IO.File.Exists(p)?"":" [missing]")).ToArray();output.Text=$"{s.CreatedUtc:u} • {s.Id}";}else{files.ItemsSource=null;reports.ItemsSource=null;}};
-        files.SelectionChanged+=(_,_)=>plan=null;
-        top.Children.Add(new TextBlock{Text="Compare against current allowlist file, or select another snapshot:",TextWrapping=TextWrapping.Wrap});other.DisplayMemberPath="Label";top.Children.Add(other);
-        var compare = new Button{Content="Compare with current / prepare restore"}; top.Children.Add(compare);
-        compare.Click+=async(_,_)=>await OperationAsync(async()=>{var s=Selected;var path=FilePath;var p=await Task.Run(()=>store.Preview(game.ExecutablePath,s.Id,path));output.Text=$"Target: {p.Path}\nSnapshot: {s.Name} ({s.Id}) {s.CreatedUtc:u}\nCurrent SHA256: {p.CurrentHash}\nSnapshot SHA256: {p.SnapshotHash}\n{p.Difference}";plan=p;output.BringIntoView();});
-        var compareOther=new Button{Content="Compare with other snapshot"};top.Children.Add(compareOther);
-        compareOther.Click+=async(_,_)=>await OperationAsync(async()=>{var id=Selected.Id;var path=FilePath;var otherId=(other.SelectedItem as ConfigSnapshot ?? throw new IOException("Select comparison snapshot.")).Id;output.Text=await Task.Run(()=>store.Compare(game.ExecutablePath,id,path,otherId));output.BringIntoView();});
-        Label("Comparison and restore preview");top.Children.Add(output);
-        var restore=new Button{Content="Restore reviewed file…",Margin=new Thickness(2)};top.Children.Add(restore);
-        restore.Click+=async(_,_)=>await OperationAsync(async()=>{var p=plan ?? throw new IOException("Prepare a current comparison first.");if(MessageBox.Show(this,$"Restore ONE file?\n{p.Path}\nSnapshot {p.Snapshot}\nHash {p.SnapshotHash}\nClose the game first. A verified backup will be retained.","Confirm configuration restore",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;plan=null;output.Text=await Task.Run(()=>store.Restore(p,()=>ConfigSnapshotStore.ClosedGuard(this.game,Task.Run(ProcessSnapshot.Capture).WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult())));output.BringIntoView();},false);
-        Label("Linked performance reports");top.Children.Add(reports);
-        top.Children.Add(Button("Link saved report…",async()=>{var s=Selected;var d=new OpenFileDialog{Filter="Saved performance report|*.md;*.txt"};if(d.ShowDialog(this)==true){await Task.Run(()=>store.Link(game.ExecutablePath,s.Id,d.FileName));Refresh();}}));
-        string Report()=>Selected.Reports.ElementAtOrDefault(reports.SelectedIndex) ?? throw new IOException("Select a linked report.");
-        top.Children.Add(Button("Unlink selected report",async()=>{var id=Selected.Id;var path=Report();await Task.Run(()=>store.Link(game.ExecutablePath,id,path,true));Refresh();}));
-        top.Children.Add(Button("Open linked report",async()=>{var p=Report();var text=await Task.Run(()=>ConfigSnapshotStore.ReadReport(p));openReport(text,Path.GetFileName(p));}));
-        Refresh();RefreshSelection();
-        Closing+=(_,e)=>{if(busy){e.Cancel=true;output.Text+="\nWait for the current file operation to finish before closing.";}};
-        Closed+=(_,_)=>closed=true;
+        Title = "Configuration snapshots — " + game.Name; Width = 950; Height = 850; MinWidth = 600; MinHeight = 500;
+        var top = new StackPanel { Margin = new Thickness(12) };
+        Content = new ScrollViewer { Content = top, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var selection = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        var takeSnapshot = new Button { Content = "Create snapshot", HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
+        takeSnapshot.SetResourceReference(StyleProperty, "AccentButton");
+        void RefreshSelection()
+        {
+            var paths = store.Selection(game.ExecutablePath);
+            selection.Text = paths.Length > 0 ? string.Join(Environment.NewLine, paths) : "Choose the game configuration files to snapshot.";
+            takeSnapshot.Visibility = paths.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        top.Children.Add(selection);
+        var capture = new WrapPanel(); top.Children.Add(capture);
+        capture.Children.Add(takeSnapshot);
+        AddButton(capture, "Choose files...", async () =>
+        {
+            var picker = new OpenFileDialog { Multiselect = true, Filter = "Text configurations|*.ini;*.cfg;*.conf;*.json;*.xml;*.yaml;*.yml;*.toml;*.txt|All files|*.*" };
+            if (picker.ShowDialog(this) != true) return;
+            await Task.Run(() => store.Select(game.ExecutablePath, picker.FileNames));
+            RefreshSelection();
+        });
+        takeSnapshot.Click += async (_, _) => await OperationAsync(async () =>
+        {
+            var label = name.Text;
+            var created = await Task.Run(() => store.Create(game.ExecutablePath, label));
+            Refresh(created.Id);
+        });
+        top.Children.Add(new Expander { Header = "Snapshot name", Content = name, Padding = new Thickness(0, 6, 0, 0), Margin = new Thickness(0, 5, 0, 10) });
+
+        var library = new StackPanel(); top.Children.Add(library);
+        library.Children.Add(new TextBlock { Text = "Saved snapshots", FontWeight = FontWeights.SemiBold });
+        snapshots.DisplayMemberPath = "Label"; library.Children.Add(snapshots); library.Children.Add(selectedDetails);
+        selectedDetails.Children.Add(new TextBlock { Text = "Files in snapshot", Margin = new Thickness(0, 8, 0, 4) });
+        selectedDetails.Children.Add(files);
+        var comparison = new WrapPanel(); selectedDetails.Children.Add(comparison);
+        comparison.Children.Add(other); comparison.Children.Add(compare);
+        compare.Click += async (_, _) => await OperationAsync(async () =>
+        {
+            var snapshot = Selected;
+            var path = FilePath;
+            if ((other.SelectedItem as CompareTarget)?.Snapshot is { } otherId)
+            {
+                output.Text = await Task.Run(() => store.Compare(game.ExecutablePath, snapshot.Id, path, otherId));
+            }
+            else
+            {
+                var preview = await Task.Run(() => store.Preview(game.ExecutablePath, snapshot.Id, path));
+                output.Text = $"Target {preview.Path}\nSnapshot {snapshot.Label}\nCurrent SHA256 {preview.CurrentHash}\nSnapshot SHA256 {preview.SnapshotHash}\n{preview.Difference}";
+                plan = preview;
+            }
+            output.BringIntoView();
+        });
+        output.Visibility = Visibility.Collapsed;
+        output.TextChanged += (_, _) => output.Visibility = string.IsNullOrWhiteSpace(output.Text) ? Visibility.Collapsed : Visibility.Visible;
+        top.Children.Add(output); top.Children.Add(restore);
+        restore.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+        restore.Click += async (_, _) => await OperationAsync(async () =>
+        {
+            var preview = plan ?? throw new IOException("Compare with the current file first.");
+            if (MessageBox.Show(this, $"Restore one file?\n{preview.Path}\nSnapshot {preview.Snapshot}\nHash {preview.SnapshotHash}\nClose the game first. A verified backup will be retained.",
+                "Confirm configuration restore", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            plan = null;
+            output.Text = await Task.Run(() => store.Restore(preview, () => ConfigSnapshotStore.ClosedGuard(this.game,
+                Task.Run(ProcessSnapshot.Capture).WaitAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult())));
+            output.BringIntoView();
+        }, false);
+
+        var links = new StackPanel();
+        selectedDetails.Children.Add(new Expander { Header = "Linked performance reports", Content = links, Padding = new Thickness(0, 6, 0, 0), Margin = new Thickness(0, 7, 0, 8) });
+        links.Children.Add(reports);
+        var reportActions = new WrapPanel(); links.Children.Add(reportActions);
+        AddButton(reportActions, "Link report...", async () =>
+        {
+            var snapshot = Selected;
+            var picker = new OpenFileDialog { Filter = "Saved performance report|*.md;*.txt" };
+            if (picker.ShowDialog(this) != true) return;
+            await Task.Run(() => store.Link(game.ExecutablePath, snapshot.Id, picker.FileName));
+            Refresh();
+        });
+        string Report() => Selected.Reports.ElementAtOrDefault(reports.SelectedIndex) ?? throw new IOException("Select a linked report.");
+        var open = AddButton(reportActions, "Open report", async () =>
+        {
+            var path = Report();
+            var text = await Task.Run(() => ConfigSnapshotStore.ReadReport(path));
+            openReport(text, Path.GetFileName(path));
+        });
+        var unlink = AddButton(reportActions, "Unlink", async () =>
+        {
+            var id = Selected.Id; var path = Report();
+            await Task.Run(() => store.Link(game.ExecutablePath, id, path, true));
+            Refresh();
+        });
+        open.Visibility = unlink.Visibility = Visibility.Collapsed;
+        reports.SelectionChanged += (_, _) =>
+        {
+            unlink.Visibility = reports.SelectedIndex >= 0 ? Visibility.Visible : Visibility.Collapsed;
+            open.Visibility = reports.SelectedIndex >= 0 && File.Exists(Report()) ? Visibility.Visible : Visibility.Collapsed;
+        };
+        snapshots.SelectionChanged += (_, _) =>
+        {
+            var snapshot = snapshots.SelectedItem as ConfigSnapshot;
+            selectedDetails.Visibility = snapshot is null ? Visibility.Collapsed : Visibility.Visible;
+            files.ItemsSource = snapshot?.Files.Select(file => file.Path).ToArray() ?? [];
+            files.SelectedIndex = files.Items.Count == 1 ? 0 : -1;
+            reports.ItemsSource = snapshot?.Reports.Select(path => path + (File.Exists(path) ? "" : " [missing]")).ToArray() ?? [];
+            reports.Visibility = reports.HasItems ? Visibility.Visible : Visibility.Collapsed;
+            UpdateComparisonTargets();
+        };
+        files.SelectionChanged += (_, _) => UpdateComparisonTargets();
+        other.SelectionChanged += (_, _) => ClearComparison();
+        snapshots.SetBinding(VisibilityProperty, new System.Windows.Data.Binding(nameof(snapshots.HasItems)) { Source = snapshots, Converter = new BooleanToVisibilityConverter() });
+        library.SetBinding(VisibilityProperty, new System.Windows.Data.Binding(nameof(snapshots.HasItems)) { Source = snapshots, Converter = new BooleanToVisibilityConverter() });
+        selectedDetails.Visibility = Visibility.Collapsed;
+        Refresh(); RefreshSelection();
+        Closing += (_, e) => { if (busy) { e.Cancel = true; output.Text += "\nWait for the current file operation to finish before closing."; } };
+        Closed += (_, _) => closed = true;
     }
-    async Task OperationAsync(Func<Task> action,bool clearPlan=true)
+
+    Button AddButton(System.Windows.Controls.Panel panel, string title, Func<Task> action)
     {
-        if(busy || closed)return;
-        busy=true;((UIElement)Content).IsEnabled=false;if(clearPlan)plan=null;
-        try{await action();}catch(Exception ex){if(!closed)output.Text=ex.Message;}
-        finally{busy=false;if(!closed)((UIElement)Content).IsEnabled=true;}
+        var button = new Button { Content = title, HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
+        button.Click += async (_, _) => await OperationAsync(action);
+        panel.Children.Add(button);
+        return button;
     }
-    void Refresh(Guid? preferred=null){var id=preferred ?? (snapshots.SelectedItem as ConfigSnapshot)?.Id;var list=store.Snapshots(game.ExecutablePath);snapshots.ItemsSource=list;other.ItemsSource=list;snapshots.SelectedItem=list.FirstOrDefault(s=>s.Id==id);}
+
+    void UpdateComparisonTargets()
+    {
+        ClearComparison();
+        var path = files.SelectedItem as string;
+        var current = snapshots.SelectedItem as ConfigSnapshot;
+        var targets = saved.Where(s => s.Id != current?.Id && s.Files.Any(file => string.Equals(file.Path, path, StringComparison.OrdinalIgnoreCase)))
+            .Select(s => new CompareTarget(s.Label, s.Id)).Prepend(new CompareTarget("Current file", null)).ToArray();
+        other.ItemsSource = targets; other.SelectedIndex = 0;
+        other.Visibility = path is not null && targets.Length > 1 ? Visibility.Visible : Visibility.Collapsed;
+        compare.Visibility = path is null ? Visibility.Collapsed : Visibility.Visible;
+        compare.Content = targets.Length > 1 ? "Compare" : "Compare with current";
+    }
+
+    void ClearComparison()
+    {
+        plan = null;
+        restore.Visibility = Visibility.Collapsed;
+        output.Clear();
+    }
+
+    async Task OperationAsync(Func<Task> action, bool clearPlan = true)
+    {
+        if (busy || closed) return;
+        busy = true;
+        ((UIElement)Content).IsEnabled = false;
+        if (clearPlan) ClearComparison();
+        try { await action(); }
+        catch (Exception ex) { if (!closed) { output.Text = ex.Message; output.BringIntoView(); } }
+        finally
+        {
+            busy = false;
+            if (!closed)
+            {
+                ((UIElement)Content).IsEnabled = true;
+                restore.Visibility = plan is null ? Visibility.Collapsed : Visibility.Visible;
+            }
+        }
+    }
+
+    void Refresh(Guid? preferred = null)
+    {
+        var id = preferred ?? (snapshots.SelectedItem as ConfigSnapshot)?.Id;
+        saved = store.Snapshots(game.ExecutablePath).ToArray();
+        snapshots.ItemsSource = saved;
+        snapshots.SelectedItem = saved.FirstOrDefault(s => s.Id == id) ?? saved.FirstOrDefault();
+    }
 }
+
 public partial class MainWindow
 {
     private bool _openingConfigSnapshots;
@@ -82,7 +225,7 @@ public partial class MainWindow
     }
     private async void ConfigurationSnapshots_Click(object sender,RoutedEventArgs e)
     {
-        if(PerformanceGame.SelectedItem is not GameRule game){PerformanceStatus.Text="Select a configured game first.";return;}
+        if (SelectedGame(PerformanceGame) is not { } game) { PerformanceStatus.Text = "Select a configured game first."; return; }
         if(_openingConfigSnapshots)return;
         _openingConfigSnapshots=true;var captured=game.Copy();
         try{var store=await Task.Run(()=>new ConfigSnapshotStore(_dataDirectory));if(!_exiting){var window=new ConfigurationSnapshotsWindow(store,captured,(text,title)=>ShowReportTimeline(text,title)){Owner=this};_configSnapshotWindows.Add(window);window.Closed+=(_,_)=>_configSnapshotWindows.Remove(window);window.Show();}}

@@ -14,7 +14,7 @@ public partial class MainWindow
     private void BenchmarkRecipes_Click(object sender, RoutedEventArgs e)
     {
         if (_benchmarkWindow != null) { _benchmarkWindow.Activate(); return; }
-        if (PerformanceGame.SelectedItem is not GameRule selected) { PerformanceStatus.Text = "Select a game for benchmark recipes."; return; }
+        if (SelectedGame(PerformanceGame) is not { } selected) { PerformanceStatus.Text = "Select a game for benchmark recipes."; return; }
         try
         {
             var game = selected.Copy();

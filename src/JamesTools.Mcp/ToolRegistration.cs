@@ -22,9 +22,10 @@ internal static class ToolRegistration
                     {
                         TransformSchemaNode = (context, schema) =>
                         {
-                            // v1 has exactly one string-valued dictionary: InventoryComponent.Properties,
-                            // whose values are explicitly string?. The SDK cannot recover generic-value
-                            // nullability at this node, so preserve the contract in its generated schema.
+                            // Inventory properties explicitly allow null string values. The SDK cannot
+                            // recover generic-value nullability here (string and string? share a runtime
+                            // type), so preserve that contract for string-valued dictionaries. Investigation
+                            // detail dictionaries use the same schema; persisted evidence validates nonnull values.
                             if (context.TypeInfo.Type == typeof(IReadOnlyDictionary<string, string?>) && schema is JsonObject dictionarySchema &&
                                 dictionarySchema["additionalProperties"] is JsonObject valueSchema)
                                 valueSchema["type"] = new JsonArray("string", "null");

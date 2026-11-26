@@ -4,13 +4,19 @@ using System.Security.Cryptography;
 internal static class WardogsExportTests
 {
     private static void Check(bool ok, string message) { if (!ok) throw new Exception(message); }
-    private static async Task<SavedWardogsScan> Scan(string source) => new() { Source = source, SessionId = Guid.NewGuid(), Status = ScanStatus.Completed, Fingerprint = await new NativeWardogsScanWork().FingerprintAsync(source, default), Pre = 1, Post = 1, Result = new("test", "synthetic", new(), 12, [new(1, WardogsEventKind.Kill, 3, "=OCR,\"evidence\"", .8, .1, 1), new(2, WardogsEventKind.Kill, 9, "second", .9, .1, 1)]), Reviews = [new(1, ReviewDecision.Keep, "@label\n<tag>"), new(2, ReviewDecision.Keep)] };
+    private static SavedWardogsScan Scan(string source)
+    {
+        using var file = File.OpenRead(source);
+        return new() { Source = source, SessionId = Guid.NewGuid(), Status = ScanStatus.Completed, Fingerprint = SourceFingerprint.Read(file), Pre = 1, Post = 1, Result = new("test", "synthetic", new(), 12, [new(1, WardogsEventKind.Kill, 3, "=OCR,\"evidence\"", .8, .1, 1), new(2, WardogsEventKind.Kill, 9, "second", .9, .1, 1)]), Reviews = [new(1, ReviewDecision.Keep, "@label\n<tag>"), new(2, ReviewDecision.Keep)] };
+    }
     public static async Task Run()
     {
         var dir = Path.Combine(Path.GetTempPath(), "wardogs-export-test-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(dir);
         try {
-            var source = Path.Combine(dir, "source.mkv"); await File.WriteAllTextAsync(source, "synthetic bytes"); var scan = await Scan(source);
+            var source = Path.Combine(dir, "source.mkv"); await File.WriteAllTextAsync(source, "synthetic bytes"); var scan = Scan(source);
             var csv = WardogsExporter.Format(scan, WardogsExportKind.Csv); Check(csv.Contains("'@label") && csv.Contains("'=OCR,\"\"evidence\"\""), "CSV formula and quote protection");
+            var windows = scan with { Result = scan.Result! with { OcrEngine = WardogsOcrEngine.Windows, Candidates = scan.Result!.Candidates.Select(candidate => candidate with { Confidence = null }).ToArray() } };
+            Check(WardogsExporter.Format(windows, WardogsExportKind.Csv).Contains("\",,2,4"), "Windows OCR exports a blank confidence field");
             var srt = WardogsExporter.Format(scan, WardogsExportKind.Srt); Check(srt.Contains("START OF RECORDING") && srt.Contains("00:00:02,000 --> 00:00:04,000") && !srt.Contains("<tag>"), "source padded SRT normalization");
             var captured = WardogsExporter.Capture(scan); scan.Reviews[0] = new(1, ReviewDecision.Reject); Check(captured.Intervals().Count == 2, "snapshot array isolation");
             using (await WardogsExporter.VerifiedSourceAsync(captured, default)) {
@@ -60,7 +66,7 @@ internal static class WardogsExportTests
         try {
             var source = Path.Combine(dir, "source.mkv");
             await MediaTools.RunAsync(MediaTools.Resolve("", "ffmpeg"), ["-nostdin", "-v", "error", "-n", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=12", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-f", "lavfi", "-i", "sine=frequency=880:duration=12", "-map", "0:v", "-map", "1:a", "-map", "2:a", "-c:v", "libx264", "-g", "25", "-c:a", "aac", source], TimeSpan.FromSeconds(60), default);
-            var scan = await Scan(source); byte[] before; using (var initial = File.OpenRead(source)) before = await SHA256.HashDataAsync(initial);
+            var scan = Scan(source); byte[] before; using (var initial = File.OpenRead(source)) before = await SHA256.HashDataAsync(initial);
             var media = new MediaTools(); var exporter = new WardogsExporter(media); var target = Path.Combine(dir, "montage.mkv");
             var result = await exporter.ExportAsync(scan, target, WardogsExportKind.Montage, null, default); var info = await media.ProbeAsync(target, default);
             Check(info.VideoTracks == 1 && info.AudioTracks == 2 && info.Duration >= 3 && info.Duration <= 8, "two audio tracks and sane montage duration");

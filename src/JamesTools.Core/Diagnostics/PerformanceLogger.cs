@@ -67,11 +67,13 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
                 // Validate before starting any owned sampler/process.
         if (networkOptions is not null) networkOptions=NetworkProbeOptions.Create(networkOptions.Enabled,string.Join("\n",networkOptions.Targets));
         _executablePath = string.IsNullOrWhiteSpace(executablePath) ? null : Path.GetFullPath(executablePath);
-        _raw = new DiagnosticRawWriter();
-        _hardFaults = new HardFaultTrace(_options.AdvancedHardFaultTracing, _elapsed, _raw.Fault);
+        _raw = new DiagnosticRawWriter(_options.WriteRawExports);
+        _investigationClock = InvestigationClock.FromElapsed(_elapsed);
+        StartInvestigationCollectors();
+        _hardFaults = new HardFaultTrace(_options.AdvancedHardFaultTracing && !_options.DeepInvestigation, _elapsed, _raw.Fault, clock: _investigationClock);
         if (!string.IsNullOrWhiteSpace(presentMonPath) && !string.IsNullOrWhiteSpace(_executablePath))
         {
-            try { _frames = new FrameReportCollector(presentMonPath, _executablePath, _elapsed, _options, _raw.Frame); _frameStatus = "PresentMon capture requested."; }
+            try { _frames = new FrameReportCollector(presentMonPath, _executablePath, _elapsed, _options, CaptureFrame, _investigationClock); _frameStatus = "PresentMon capture requested."; }
             catch (Exception ex) { _frameStatus = "PresentMon unavailable (" + ex.GetType().Name + ")."; }
         }
         else _frameStatus = _executablePath is null
@@ -79,7 +81,10 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
             : "PresentMon not found or not configured.";
         if (networkOptions is { Enabled:true }) _network = new NetworkProbeCollector(networkOptions, new SystemNetworkProbeBackend(), new StopwatchNetworkClock(_elapsed), _stop.Token);
         _sampling = Task.Run(SampleLoopAsync);
-        _captureCancellation = captureCancellation.Register(() => _stop.Cancel());
+        if (_options.InvestigateStutter)
+            _investigationTimer = new Timer(_ => { _ = StopAsync(); }, null,
+                TimeSpan.FromSeconds(Math.Max(.01, _options.InvestigationDurationSeconds - _elapsed.Elapsed.TotalSeconds)), Timeout.InfiniteTimeSpan);
+        _captureCancellation = captureCancellation.Register(() => { _ = StopAsync(); });
     }
 
     /// <summary>Starts sampling immediately. The optional path selects matching processes and is never included in the report.</summary>
@@ -134,7 +139,7 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
         Task<string> completion;
         lock (_gate)
         {
-            _completion ??= StopCoreAsync();
+            _completion ??= Task.Run(StopCoreAsync);
             completion = _completion;
         }
         return cancellationToken.CanBeCanceled ? completion.WaitAsync(cancellationToken) : completion;
@@ -147,7 +152,9 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
 
     private async Task<string> StopCoreAsync()
     {
+        _investigationTimer?.Dispose();
         _elapsed.Stop();
+        lock (_investigationGate) _investigationCutoff = _elapsed.Elapsed.TotalSeconds;
         _hardFaults.EndAt(_elapsed.Elapsed.TotalSeconds);
         _frames?.CompleteCapture();
         _stop.Cancel();
@@ -159,15 +166,23 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
             var remaining = _frames.TakeInterval();
             if (remaining.Count > 0) AddTimeline(DiagnosticRow.ForFrames(remaining));
         }
-        await _hardFaults.DisposeAsync().ConfigureAwait(false);
-        if (_network is not null) await _network.DisposeAsync().ConfigureAwait(false);
-        var report = BuildReport();
-        _raw.Finish(report, BuildMachineSummaryJson(_frames?.GetSummary(), _frames?.GetDiagnostics(), BuildInvestigations(_frames?.GetDiagnostics())), _markers.Select(m => new ReportMarker(m.Offset.TotalSeconds, m.Note)).ToArray());
-        if (_raw.Error is { } rawError) report += "\nRaw export incomplete: " + rawError + ". Saved report summary remains available.\n";
-        _frames?.Dispose();
-        _captureCancellation.Dispose();
-        _stop.Dispose();
-        return report;
+        try
+        {
+            try { await _hardFaults.DisposeAsync().ConfigureAwait(false); }
+            finally
+            {
+                try { if (_network is not null) await _network.DisposeAsync().ConfigureAwait(false); }
+                finally { await StopInvestigationCollectorsAsync().ConfigureAwait(false); }
+            }
+            var report = BuildReport();
+            _raw.Finish(report, BuildMachineSummaryJson(_frames?.GetSummary(), _frames?.GetDiagnostics(), BuildInvestigations(_frames?.GetDiagnostics())), _markers.Select(m => new ReportMarker(m.Offset.TotalSeconds, m.Note)).ToArray());
+            if (_raw.Error is { } rawError) report += "\nRaw export incomplete: " + rawError + ". Saved report summary remains available.\n";
+            return report;
+        }
+        finally
+        {
+            _raw.Dispose(); _frames?.Dispose(); _captureCancellation.Dispose(); _stop.Dispose();
+        }
     }
 
     private async Task SampleLoopAsync()
@@ -251,8 +266,12 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
                     stats.Add(value.Value);
                 }
                 var sample = new DiagnosticHardwareSample(offset, _elapsed.Elapsed.TotalSeconds, counters.WindowStartSeconds ?? offset, _io?.StartSeconds, gpuStart, gpuEnd, values) { CpuWindowStartSeconds = _cpuWindowStartSeconds, ProcessWindowEndSeconds = _io?.EndSeconds };
-                if (_hardware.Count == TimelineLimit) _hardware.Dequeue();
-                _hardware.Enqueue(sample); _raw.Hardware(sample);
+                lock (_investigationGate)
+                {
+                    if (_hardware.Count == TimelineLimit) _hardware.Dequeue();
+                    _hardware.Enqueue(sample);
+                }
+                _raw.Hardware(sample);
                 var eventOffsets = _frames?.EventOffsets() ?? [];
                 foreach (var expired in _eventHardware.Keys.Except(eventOffsets).ToArray()) _eventHardware.Remove(expired);
                 foreach (var eventOffset in eventOffsets)
@@ -275,7 +294,11 @@ public sealed partial class PerformanceLogger : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-        catch (Exception ex) { _samplingError = "Sampling ended early (" + ex.GetType().Name + "). Measurements after the last timeline row are unavailable."; }
+        catch (Exception ex)
+        {
+            _samplingError = "Sampling ended early (" + ex.GetType().Name + "). Measurements after the last timeline row are unavailable.";
+            _ = StopAsync();
+        }
     }
 
     private IEnumerable<Statistics> SampleStatistics() => new[] { _cpu, _memoryUsed, _memoryAvailable, _gameCpu, _gameMemory,

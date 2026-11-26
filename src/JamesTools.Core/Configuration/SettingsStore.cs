@@ -49,6 +49,7 @@ public sealed class SettingsStore
         settings.Diagnostics ??= new();
         settings.Diagnostics.Validate();
         settings.LiveWardogs ??= new(); settings.LiveWardogs.Normalize();
+        settings.SteamHighlights ??= new(); settings.SteamHighlights.Normalize();
         settings.SchemaVersion = CurrentSchemaVersion;
         if (!double.IsFinite(settings.LowStorageThresholdGiB) || settings.LowStorageThresholdGiB < 0) settings.LowStorageThresholdGiB = 10;
         if (settings.CleanupSuggestionAgeDays is < 1) settings.CleanupSuggestionAgeDays = null;

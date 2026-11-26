@@ -6,6 +6,8 @@ public sealed class AppSettings
 {
     public JamesTools.Core.Diagnostics.DiagnosticOptions Diagnostics { get; set; } = new();
     public LiveWardogsSettings LiveWardogs { get; set; } = new();
+    public SteamHighlightSettings SteamHighlights { get; set; } = new();
+    public bool BackgroundWardogsOcr { get; set; }
     public int SchemaVersion { get; set; } = 2;
     public bool AutomationEnabled { get; set; }
     public bool StartWithWindows { get; set; }
@@ -88,6 +90,8 @@ public sealed class AppSettings
     {
         Diagnostics = (Diagnostics ?? new()).Copy(),
         LiveWardogs = (LiveWardogs ?? new()).Copy(),
+        SteamHighlights = (SteamHighlights ?? new()).Copy(),
+        BackgroundWardogsOcr = BackgroundWardogsOcr,
         SchemaVersion = SchemaVersion,
         NetworkDiagnosticsEnabled = NetworkDiagnosticsEnabled,
         NetworkTargets = NetworkTargets,
@@ -163,6 +167,8 @@ public sealed class GameRule
     /// <summary>Additional exact executable paths for this game. ExecutablePath remains its identity.</summary>
     public ObservableCollection<string> ExecutableAliases { get; set; } = [];
     public bool Record { get; set; } = true;
+    /// <summary>Null preserves the legacy Steam highlight setting for WARDOGS.</summary>
+    public bool? SteamAutoHighlights { get; set; }
     /// <summary>Null inherits from the selected profile or global recording default.</summary>
     public CaptureMode? CaptureMode { get; set; }
     public bool UseVibrance { get; set; } = true;
@@ -185,6 +191,7 @@ public sealed class GameRule
         ExecutablePath = ExecutablePath,
         ExecutableAliases = new ObservableCollection<string>(ExecutableAliases ?? []),
         Record = Record,
+        SteamAutoHighlights = SteamAutoHighlights,
         CaptureMode = CaptureMode,
         UseVibrance = UseVibrance,
         VibrancePercent = VibrancePercent,
@@ -228,7 +235,7 @@ public static class ExecutablePathRules
     }
 }
 
-public enum CaptureMode { Recording, Replay, Both }
+public enum CaptureMode { Recording, Replay, Both, WardogsHighlights }
 public enum VibranceTargetMode { AllDisplays, SelectedDisplay, GameWindowDisplay }
 public enum OverlayPreset { Minimal, Fps, Full }
 

@@ -9,7 +9,7 @@
             <TextBlock x:Name="ReportTitle" Text="Performance report" FontSize="20" FontWeight="SemiBold"/>
             <TextBlock x:Name="SummaryText" TextWrapping="Wrap" Margin="0,4,0,7" Foreground="#AEBBC0"/>
         </StackPanel>
-        <StackPanel Grid.Row="1" Margin="0,4,0,8">
+        <Expander Grid.Row="1" Header="Time range and exclusions" Margin="0,4,0,8" Padding="0,6,0,0"><StackPanel>
             <WrapPanel VerticalAlignment="Top">
                 <TextBlock Text="Range (s)" VerticalAlignment="Center" Margin="0,0,5,0"/>
                 <TextBox x:Name="RangeStart" Width="85" Margin="0,0,6,0"/>
@@ -24,10 +24,21 @@
                 <TextBox x:Name="ExcludeEnd" Width="58" ToolTip="Excluded end (s)"/>
                 <TextBlock Text="Reason" VerticalAlignment="Center" Margin="5,0"/>
                 <TextBox x:Name="ExcludeReason" Width="110" ToolTip="Reason e.g. loading or alt-tab"/>
-                <Button Content="Add excluded interval" Click="AddExclusion_Click"/>
-                <Button Content="Remove" Click="RemoveExclusion_Click"/>
+                <Button Content="Exclude interval" Click="AddExclusion_Click"/>
             </WrapPanel>
-        </StackPanel>
+            <DockPanel x:Name="ExclusionsPanel" Visibility="Collapsed" Margin="0,6,0,0">
+                <Button Content="Remove exclusion" DockPanel.Dock="Right" Click="RemoveExclusion_Click">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedIndex, ElementName=ExclusionList}" Value="-1"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <ListBox x:Name="ExclusionList" MaxHeight="64" DisplayMemberPath="Display"/>
+            </DockPanel>
+        </StackPanel></Expander>
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
             <StackPanel>
                 <StackPanel x:Name="StutterPanel" Margin="0,0,0,12">
@@ -52,15 +63,14 @@
         </ScrollViewer>
         <ScrollViewer Grid.Row="3" Margin="0,7,0,0" VerticalScrollBarVisibility="Auto"><Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <StackPanel>
+            <StackPanel x:Name="MarkersPanel">
                 <TextBlock Text="Markers (select a stutter to zoom ±10 s)" FontWeight="SemiBold"/>
                 <ListBox x:Name="MarkerList" Height="132" SelectionChanged="MarkerList_SelectionChanged" DisplayMemberPath="Display"/>
             </StackPanel>
-            <StackPanel Grid.Column="1" Margin="12,0,0,0">
+            <StackPanel x:Name="ReportDetails" Grid.Column="1" Margin="12,0,0,0">
                 <ScrollViewer Height="108" VerticalScrollBarVisibility="Auto">
                     <TextBlock x:Name="AnalysisText" TextWrapping="Wrap"/>
                 </ScrollViewer>
-                <ListBox x:Name="ExclusionList" Height="42" DisplayMemberPath="Display"/>
                 <DataGrid x:Name="SampleTable" Height="105" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column"/>
             </StackPanel>
         </Grid></ScrollViewer>

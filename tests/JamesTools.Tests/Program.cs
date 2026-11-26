@@ -5,24 +5,49 @@ using JamesTools.Core.Diagnostics;
 using JamesTools.Core.Platform;
 using JamesTools.Core.Recording;
 
-if (args.Length == 2 && args[0].EndsWith(".fake.dll")) return await LiveWorkerTests.Child(args[0]);
 if (args.Contains("--diagnostic-benchmark")) { AdvancedDiagnosticTests.Benchmark(); return 0; }
+if (args.Contains("--investigation-smoke")) { await InvestigationIntegrationTests.Smoke(); return 0; }
+if (args.Contains("--investigation-overhead")) { await InvestigationIntegrationTests.Overhead(); return 0; }
+if (args.Contains("--investigation-tests"))
+{
+    await InvestigationIntegrationTests.Run(); await InvestigationAnalysisTests.Run();
+    await InvestigationDeviceTests.Run(); await InvestigationDeepTraceTests.Run();
+    Console.WriteLine("PASS all investigation deterministic test groups"); return 0;
+}
 if (args.Contains("--wardogs-montage-integration")) await WardogsExportTests.Integration();
 if (args.Contains("--media-integration")) await MediaTests.Integration();
-var wardogsIntegration = Array.IndexOf(args, "--wardogs-integration");
-if (wardogsIntegration >= 0) await WardogsTests.Integration(args.ElementAtOrDefault(wardogsIntegration + 1) ?? throw new ArgumentException("Supply an absolute tesseract.exe path after --wardogs-integration."));
-if (args.Length >= 5 && args[0] == "--live-replay") await LiveWardogsTests.Replay(args[1], args[2], args[3], args.Skip(4).ToArray());
+if (args is ["--steam-wardogs-smoke", var recordingRoot, var toolsFolder])
+{
+    await SteamWardogsTests.Smoke(recordingRoot, toolsFolder);
+    return 0;
+}
+if (args is ["--steam-wardogs-montage-smoke", var montageRoot, var montageTools])
+{
+    await SteamWardogsTests.MontageSmoke(montageRoot, montageTools);
+    return 0;
+}
+if (args is ["--steam-wardogs-selection-smoke", var selectionRoot, var selectionTools, var sessionsDirectory])
+{
+    await SteamWardogsTests.SelectionSmoke(selectionRoot, selectionTools, sessionsDirectory);
+    return 0;
+}
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("investigation shared clock, options and backwards-compatible reports", InvestigationIntegrationTests.Run),
+    ("investigation periodic fixtures, competing evidence and false positives", InvestigationAnalysisTests.Run),
+    ("investigation device arrival/removal, topology, audio and cleanup", InvestigationDeviceTests.Run),
+    ("investigation deep ETW attribution, loss, bounds and crash recovery", InvestigationDeepTraceTests.Run),
+    ("bundled media tools, explicit overrides and legacy discovery", BundledToolTests.Run),
     ("diagnostic frame fields, QPC alignment, warm-up and restart isolation", AdvancedDiagnosticTests.Frames),
     ("diagnostic rolling FPS, variability, stutter clusters and bounded context", AdvancedDiagnosticTests.Pacing),
     ("diagnostic process attribution, local exports and unprivileged fallback", AdvancedDiagnosticTests.StorageAndAttribution),
     ("diagnostic independent NVML sensors, transient failures and recovery", AdvancedDiagnosticTests.SensorFailures),
     ("diagnostic comparisons, exposure, cautious wording and legacy reports", AdvancedDiagnosticTests.Comparisons),
     ("live capture lifecycle and explicit-run cleanup", LiveCaptureTests.Run),
-    ("WARDOGS owned worker startup, timeout, exit and cancellation", LiveWorkerTests.Run),
     ("WARDOGS live resets, stale frames, gating, assists and failures", LiveWardogsSequenceTests.Run),
     ("WARDOGS live baseline, refinement and cleanup", LiveWardogsTests.Run),
+    ("WARDOGS highlights group selected events and bound save deadlines", WardogsHighlightTests.Run),
+    ("Steam WARDOGS timeline links, retained fragments, and verified export", SteamWardogsTests.Run),
     ("WARDOGS verified exports and markers", WardogsExportTests.Run),
     ("WARDOGS synthetic scanner, tracking, cancellation and intervals", WardogsTests.Run),
     ("performance history versions, groups, compatibility and persistence", PerformanceHistoryTests.Run),
@@ -41,6 +66,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("profile reference validation and protected deletion", Tests.ProfileReferencesAndDeletion),
     ("profile directory satisfies per-game recording validation", Tests.ProfileDirectoryValidation),
     ("capture modes map to OBS launch arguments", Tests.CaptureModeArguments),
+    ("WARDOGS highlight launch pins the detected client and replay length", Tests.WardogsHighlightLaunch),
     ("exact game matching and Steam path boundaries", Tests.MatchProcesses),
     ("executable aliases, diagnostics, and path validation", Tests.ExecutableAliases),
     ("detects a selected portable OBS configuration", Tests.DetectPortableObs),
@@ -50,10 +76,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("OBS refuses hidden capture and concurrent edits", Tests.ObsRejectsUnsafeChanges),
     ("OBS WebSocket auth, requests, status, paths, timeouts and disconnects", ObsWebSocketTests.Run),
     ("automation transitions and recording grace period", Tests.AutomationTransitions),
+    ("per-game OBS opt-out stops owned capture and vetoes broad match fallback", Tests.GameRecordingOptOut),
     ("managed stop intents cover watching disabled", Tests.WatchingOffStopIntent),
     ("recording follows a second selected game", Tests.RecordingSwitchesGames),
     ("alias recorder target keeps canonical game ownership", Tests.AliasRecordingTarget),
     ("automation does not own an existing OBS", Tests.ExistingObsIsNotStopped),
+    ("background OCR detects configured games without starting automation", Tests.BackgroundOcrGameDetection),
     ("automation stops retrying after OBS closes", Tests.ClosedObsDoesNotLoop),
     ("automation retries startup failures with a limit", Tests.StartFailureBackoff),
     ("manual changes are respected when disabling automation", Tests.ManualChangesAreRespected),
@@ -389,6 +417,7 @@ internal static class Tests
     {
         Assert(ObsRecorder.BuildCaptureArguments(CaptureMode.Recording).SequenceEqual(["--startrecording"]), "recording launch arguments incorrect");
         Assert(ObsRecorder.BuildCaptureArguments(CaptureMode.Replay).SequenceEqual(["--startreplaybuffer"]), "replay launch arguments incorrect");
+        Assert(ObsRecorder.BuildCaptureArguments(CaptureMode.WardogsHighlights).SequenceEqual(["--startreplaybuffer"]), "highlights must start only the replay buffer");
         Assert(ObsRecorder.BuildCaptureArguments(CaptureMode.Both).SequenceEqual(["--startrecording", "--startreplaybuffer"]), "both launch arguments incorrect");
         return Task.CompletedTask;
     }
@@ -568,6 +597,32 @@ internal static class Tests
             "watching-off stop intent was not ordered before the recorder stop");
     }
 
+    public static async Task GameRecordingOptOut()
+    {
+        using var temp = new TempDirectory();
+        var settings = Settings();
+        settings.RecordingStopDelaySeconds = 120;
+        var platform = new FakePlatform { Processes = [new RunningProcess(10, "game.exe", GamePath)] };
+        var recorder = new FakeRecorder();
+        await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => DateTime.UtcNow);
+
+        await automation.TickForTestsAsync();
+        Assert(recorder.Starts == 1 && recorder.Owned, "enabled rule did not launch OBS");
+
+        settings.Games[0].Record = false;
+        settings.Games.Add(new GameRule { Name = "Folder match", ExecutablePath = @"C:\Games\Example\other.exe", MatchMode = "folder" });
+        automation.UpdateSettings(settings);
+        await automation.TickForTestsAsync();
+        Assert(recorder.Stops == 1 && !recorder.Owned, "explicit opt-out waited for the game-exit delay");
+        await automation.TickForTestsAsync();
+        Assert(recorder.Starts == 1, "an overlapping folder rule bypassed the opt-out");
+        Assert(platform.Vibrance == 80 && platform.Power == GamingPlan, "OBS opt-out disabled other automation");
+
+        platform.Processes = [new(10, "game.exe", GamePath), new(20, "other.exe", @"C:\Games\Example\other.exe")];
+        await automation.TickForTestsAsync();
+        Assert(recorder.Starts == 2 && recorder.Owned, "opt-out for one game blocked capture for another process");
+    }
+
     public static async Task ExistingObsIsNotStopped()
     {
         using var temp = new TempDirectory();
@@ -578,6 +633,28 @@ internal static class Tests
         platform.Processes = [];
         await automation.TickForTestsAsync();
         Assert(recorder.Stops == 0, "existing OBS was stopped");
+    }
+
+    public static async Task BackgroundOcrGameDetection()
+    {
+        using var temp = new TempDirectory();
+        var settings = Settings();
+        settings.AutomationEnabled = false;
+        settings.BackgroundWardogsOcr = true;
+        var platform = new FakePlatform();
+        var recorder = new FakeRecorder();
+        await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => DateTime.UtcNow);
+        AutomationStatus? status = null;
+        automation.StatusChanged += observation => status = observation;
+        await automation.TickForTestsAsync();
+        Assert(status?.BackgroundOcrGameDetected == false, "idle detection did not report an idle computer");
+        platform.Processes = [new RunningProcess(10, "game.exe", GamePath)];
+        await automation.TickForTestsAsync();
+        Assert(status?.BackgroundOcrGameDetected == true && recorder.Starts == 0, "game detection needs to pause OCR without starting OBS");
+        settings.BackgroundWardogsOcr = false;
+        automation.UpdateSettings(settings);
+        await automation.TickForTestsAsync();
+        Assert(status is { BackgroundOcrGameDetected: null }, "background detection did not turn off");
     }
 
     public static async Task RecordingSwitchesGames()
@@ -752,6 +829,33 @@ internal static class Tests
                issues.Any(issue => issue.Contains("duplicates another", StringComparison.OrdinalIgnoreCase)),
             "invalid, canonical duplicate, or normalized duplicate aliases were not surfaced");
         return Task.CompletedTask;
+    }
+
+    public static async Task WardogsHighlightLaunch()
+    {
+        using var temp = new TempDirectory();
+        var settings = Settings();
+        settings.Games[0].CaptureMode = CaptureMode.WardogsHighlights;
+        settings.Games[0].ReplayBufferSeconds = 25;
+        var platform = new FakePlatform { Processes = [new RunningProcess(10, "game.exe", GamePath)] };
+        var recorder = new FakeRecorder();
+        var clock = new FakeClock();
+        await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => clock.Now);
+        var launches = new List<AutomationRecordingLifecycle>();
+        automation.RecordingLifecycleChanged += launches.Add;
+        await automation.TickForTestsAsync();
+        Assert(!recorder.Owned && launches.Count == 0, "a non-WARDOGS game armed highlights");
+
+        const string client = @"C:\Games\WardogsClient-Win64-Shipping.exe";
+        settings.Games[0].ExecutableAliases.Add(client);
+        platform.Processes = [new RunningProcess(11, "WardogsClient-Win64-Shipping.exe", client)];
+        automation.UpdateSettings(settings);
+        await automation.TickForTestsAsync();
+        Assert(recorder.Owned && recorder.LastSettings?.CaptureMode == CaptureMode.WardogsHighlights,
+            "WARDOGS option did not reach the recorder");
+        var launch = launches.Single();
+        Assert(launch is { IsOwned: true, GamePid: 11, GameExecutable: client, GameRulePath: GamePath, ReplaySeconds: 25 },
+            "highlight launch did not preserve the game process, canonical game path, and replay length");
     }
 
     public static async Task PerGameOverrides()

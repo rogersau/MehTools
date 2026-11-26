@@ -63,36 +63,37 @@ public sealed class McpSettingsWindow : Window
         var scroll = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         Grid.SetRow(scroll, 1); layout.Children.Add(scroll);
 
-        var status = Card(body, "Running now");
-        status.Children.Add(_running);
-        status.Children.Add(Hint("Status is a snapshot. Refresh after starting, stopping, or restarting the host from your MCP client or terminal."));
-
-        var configuration = Card(body, "Configuration for the next host start");
-        configuration.Children.Add(_configured);
+        var configuration = Card(body, "Connect via stdio");
         configuration.Children.Add(_editor);
         _editor.Children.Add(_enabled);
         _editor.IsEnabled = false;
-        _editor.Children.Add(Hint("Stdio is the default and opens no listener. These optional HTTP settings apply only when a host is explicitly started with --http."));
-        Field(_editor, "HTTP bind address", _address);
-        Field(_editor, "HTTP port", _port);
-        configuration.Children.Add(Hint("Saving does not start, stop, or restart a host. Changes, including disabling connections, take effect when each running host is restarted."));
         configuration.Children.Add(_actions);
+        configuration.Children.Add(_command);
+        _command.Text = Command(false);
+        AutomationProperties.SetName(_command, "Stdio connection command");
+        AddButton(configuration, "Copy connection command", () => Copy(Command(false)));
+        configuration.Children.Add(Hint("Restart your MCP client after saving. For separate command and argument fields, use the executable above and pass --config and the file path as two arguments."));
 
-        var security = Card(body, "HTTP authentication & TLS");
-        AddSecurityHelp(security);
-        var connection = Card(body, "Stdio connection command");
-        connection.Children.Add(Hint("Use this executable and arguments in your MCP client's stdio configuration. The client starts and owns the host process. The combined command below uses Windows Command Prompt syntax."));
-        connection.Children.Add(_command);
-        AddConnectionActions(connection);
+        var httpSettings = new StackPanel();
+        _editor.Children.Add(new Expander { Header = "Optional HTTP settings", Content = httpSettings, Padding = new Thickness(0, 7, 0, 0), Margin = new Thickness(0, 10, 0, 0) });
+        httpSettings.Children.Add(Hint("These settings apply when a host is explicitly started with --http."));
+        Field(httpSettings, "HTTP bind address", _address);
+        Field(httpSettings, "HTTP port", _port);
+        AddSecurityHelp(httpSettings);
+        AddButton(httpSettings, "Copy HTTP command", () => Copy(Command(true)));
+
+        var status = new StackPanel();
+        body.Children.Add(new Expander { Header = "Saved configuration and running status", Content = status, Padding = new Thickness(0, 7, 0, 0) });
+        status.Children.Add(_configured);
+        status.Children.Add(_running);
 
         var footer = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
         _notice.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
         AutomationProperties.SetLiveSetting(_notice, AutomationLiveSetting.Polite);
         footer.Children.Add(_notice);
-        var close = new Button { Content = "Close", IsCancel = true, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
-        close.Click += (_, _) => Close(); footer.Children.Add(close);
         Grid.SetRow(footer, 2); layout.Children.Add(footer);
         ConfigureActions(status);
+        PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) Close(); };
         Closed += (_, _) => { _closed = true; _lifetime.Cancel(); };
         Loaded += async (_, _) => await LoadAsync();
     }
@@ -124,12 +125,11 @@ public sealed class McpSettingsWindow : Window
     private void AddSecurityHelp(Panel panel)
     {
         panel.Children.Add(Hint("HTTP always requires a bearer token of at least 32 UTF-8 bytes in the host process's environment. Enter environment variable names below, never tokens or passwords. Stdio does not require an HTTP token."));
-        // Keep every editable setting in one group so a failed load disables all editing.
-        Field(_editor, "Bearer token environment variable name", _tokenVariable);
-        Field(_editor, "TLS certificate path (.pfx; optional on loopback)", _certificate);
-        Field(_editor, "Certificate password environment variable name (optional)", _passwordVariable);
-        Field(_editor, "Allowed HTTP hosts (one exact name/IP per line; optional)", _hosts);
-        Field(_editor, "Allowed browser origins (one exact origin per line; optional)", _origins);
+        Field(panel, "Bearer token environment variable name", _tokenVariable);
+        Field(panel, "TLS certificate path (.pfx; optional on loopback)", _certificate);
+        Field(panel, "Certificate password environment variable name (optional)", _passwordVariable);
+        Field(panel, "Allowed HTTP hosts (one exact name/IP per line; optional)", _hosts);
+        Field(panel, "Allowed browser origins (one exact origin per line; optional)", _origins);
         foreach (var input in new[] { _hosts, _origins })
         {
             input.AcceptsReturn = true;
@@ -139,18 +139,6 @@ public sealed class McpSettingsWindow : Window
         }
         panel.Children.Add(Hint("Loopback (127.0.0.1 or ::1) is the default. A nonloopback bind requires a PFX certificate and HTTPS. To publish loopback HTTP through a TLS proxy, retain bearer authentication and allow the proxy's exact Host. Never send bearer tokens over public plaintext HTTP."));
         panel.Children.Add(Hint("Blank allowed hosts uses the bind address (plus localhost for loopback). Blank allowed origins rejects requests containing Origin. Add a browser origin only when intentionally authorizing it. Changing environment variables also requires restarting the host with the new environment."));
-    }
-
-    private void AddConnectionActions(Panel panel)
-    {
-        _command.Text = Command(false);
-        AutomationProperties.SetName(_command, "Stdio connection command");
-        var buttons = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-        panel.Children.Add(buttons);
-        AddButton(buttons, "Copy stdio command", () => Copy(Command(false)));
-        AddButton(buttons, "Copy optional HTTP command", () => Copy(Command(true)));
-        panel.Children.Add(Hint("For clients with separate fields, use the executable shown above as command, and --config plus its file path as two arguments. Omit --http for stdio. Configure and enable MCP first, then restart your client. Copying a command never runs it."));
-        panel.Children.Add(Hint("Configuration file: " + ConfigPath));
     }
 
     private string Command(bool http) => $"\"{_hostPath}\" --config \"{ConfigPath}\"" + (http ? " --http" : "");
@@ -169,12 +157,12 @@ public sealed class McpSettingsWindow : Window
         _actions.Margin = new Thickness(0, 12, 0, 0);
         var save = AddButton(_actions, "Save configuration", async () => await SaveAsync());
         save.SetResourceReference(StyleProperty, "AccentButton");
-        AddButton(_actions, "Reload saved configuration", async () => await LoadAsync());
+        AddButton(refresh, "Reload saved configuration", async () => await LoadAsync());
     }
 
     private static Button AddButton(Panel panel, string text, Action action)
     {
-        var button = new Button { Content = text, Margin = new Thickness(0, 0, 8, 8) };
+        var button = new Button { Content = text, Margin = new Thickness(0, 6, 8, 4), HorizontalAlignment = HorizontalAlignment.Left };
         button.Click += (_, _) => action(); panel.Children.Add(button); return button;
     }
 

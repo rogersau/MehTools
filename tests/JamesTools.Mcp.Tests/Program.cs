@@ -7,7 +7,7 @@ if (args is ["--fixture-stdio", var directory, var scenario])
 {
     using var backend = new FixtureBackend { Oversized = scenario == "oversized", Fail = scenario == "failure" };
     if (scenario == "saturated") LargeSessionFixture.Write(Path.Combine(directory, "sessions"));
-    await using var sessions = new DiagnosticSessionService(backend, Path.Combine(directory, "sessions"));
+    await using var sessions = new DiagnosticSessionService(backend, Path.Combine(directory, "sessions"), new InvestigationFixture());
     var builder = Host.CreateApplicationBuilder([]);
     McpHost.AddDiagnostics(builder.Services, backend, sessions);
     using var host = McpHost.BuildStdioHost(builder, Console.OpenStandardInput(), Console.OpenStandardOutput());
@@ -24,12 +24,14 @@ var tests = new List<(string Name, Func<Task> Run)>
 {
     ("contracts", ContractTests.RunAsync),
     ("sessions", SessionTests.RunAsync),
+    ("investigations", InvestigationTests.RunAsync),
     ("stdio", TransportTests.StdioAsync),
     ("http", TransportTests.HttpAsync),
     ("https", TlsTests.RunAsync),
     ("configuration", SecurityTests.ConfigurationAsync)
 };
 if (args.Contains("--hardware")) tests.Add(("hardware", TransportTests.HardwareAsync));
+if (args.Contains("--investigation-smoke")) tests.Add(("investigation-windows", InvestigationWindowsSmoke.RunAsync));
 if (args.Contains("--list")) { foreach (var test in tests) Console.WriteLine(test.Name); return 0; }
 var only = Array.IndexOf(args, "--only");
 if (only >= 0) tests = tests.Where(t => t.Name == args.ElementAtOrDefault(only + 1)).ToList();

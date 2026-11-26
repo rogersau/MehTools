@@ -17,7 +17,7 @@ public partial class MainWindow
 {
     private PerformanceLogger? _performanceLogger;
     private string? _performanceReport;
-    private bool _performanceReportSaved = true;
+    private string? _performanceReportPath;
     private bool _performanceBusy;
     private DateTime _performanceStarted;
     private DispatcherTimer? _performanceTimer;
@@ -25,7 +25,17 @@ public partial class MainWindow
     private Guid? _performanceDiagnosticSessionId;
     private string? _baselineReportPath;
     private string? _performanceTargetNotice;
-    private string? _performanceRawDirectory;
+
+    private void BrowsePresentMon_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new Microsoft.Win32.OpenFileDialog { Title = "Choose the PresentMon program", Filter = "Executable files (*.exe)|*.exe" };
+        if (picker.ShowDialog(this) == true) PresentMonPath.Text = picker.FileName;
+    }
+
+    private void ClearPresentMon_Click(object sender, RoutedEventArgs e) => PresentMonPath.Clear();
+
+    private GameRule? SelectedGame(System.Windows.Controls.ComboBox picker) =>
+        picker.SelectedItem as GameRule ?? (_settings.Games.Count == 1 ? _settings.Games[0] : null);
 
     private void InitializeDiagnosticConditions()
     {
@@ -48,13 +58,13 @@ public partial class MainWindow
         if (!string.IsNullOrWhiteSpace(_baselineReportPath) && string.IsNullOrWhiteSpace(PerformanceSetup.Text))
         {
             PerformanceStatus.Text = "Record the retest game settings and test scene before starting.";
-            PerformanceSetup.Focus();
+            RevealEditor(PerformanceSetup);
             return;
         }
         if (!string.IsNullOrWhiteSpace(_baselineReportPath) && string.IsNullOrWhiteSpace(RetestChangeBox.Text))
         {
             PerformanceStatus.Text = "Describe the one setting changed for this retest before starting.";
-            RetestChangeBox.Focus();
+            RevealEditor(RetestChangeBox);
             return;
         }
         if (!string.IsNullOrWhiteSpace(_baselineReportPath) && !File.Exists(_baselineReportPath))
@@ -62,15 +72,16 @@ public partial class MainWindow
             PerformanceStatus.Text = "The selected baseline report is missing. Choose it again before starting the retest.";
             return;
         }
-        if (!_performanceReportSaved && MessageBox.Show(this, "Your last report isn't saved. Start a new log anyway?", "Unsaved report", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        if (_performanceReport is not null && _performanceReportPath is null &&
+            MessageBox.Show(this, "Your last report isn't saved. Start a new log anyway?", "Unsaved report", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         _performanceBusy = true;
         StartPerformanceButton.IsEnabled = false;
         PerformanceGame.IsEnabled = false;
         try
         {
             PerformanceStatus.Text = "Starting…";
-            var game = (PerformanceGame.SelectedItem as GameRule)?.Copy();
-            var presentMon = PresentMonLocator.Resolve(ReportPresentMonPath?.Text ?? _settings.PresentMonPath);
+            var game = SelectedGame(PerformanceGame)?.Copy();
+            var presentMon = PresentMonLocator.Resolve(_settings.PresentMonPath);
             string? targetPath = null;
             _performanceTargetNotice = null;
             if (game is not null)
@@ -104,9 +115,9 @@ public partial class MainWindow
                 catch (Exception ex) { SessionsStatus.Text = "Session association unavailable: " + ex.Message; }
             }
             SetPerformanceContext();
-            _performanceRawDirectory = _performanceLogger.RawDataDirectory;
             _performanceReport = null;
-            _performanceReportSaved = true;
+            _performanceReportPath = null;
+            PerformanceReportActions.Visibility = Visibility.Collapsed;
             SavePerformanceButton.IsEnabled = false;
             ViewPerformanceReportButton.IsEnabled = false;
             CompareCurrentBaselineButton.IsEnabled = false;
@@ -117,6 +128,9 @@ public partial class MainWindow
             _performanceTimer.Tick -= PerformanceTimer_Tick;
             _performanceTimer.Tick += PerformanceTimer_Tick;
             _performanceTimer.Start();
+            StartPerformanceButton.Visibility = Visibility.Collapsed;
+            StopPerformanceButton.Visibility = Visibility.Visible;
+            PerformanceMarkerOptions.Visibility = Visibility.Visible;
             StopPerformanceButton.IsEnabled = true;
             PerformanceTimer_Tick(null, EventArgs.Empty);
         }
@@ -137,9 +151,9 @@ public partial class MainWindow
             (_performanceTargetNotice is null ? "" : " " + _performanceTargetNotice);
     }
 
-    private async void StopPerformance_Click(object sender, RoutedEventArgs e) => await StopPerformanceAsync(true);
+    private async void StopPerformance_Click(object sender, RoutedEventArgs e) => await StopPerformanceAsync();
 
-    private async Task<bool> StopPerformanceAsync(bool save)
+    private async Task<bool> StopPerformanceAsync()
     {
         if (_performanceBusy || _performanceLogger is null) return false;
         _performanceBusy = true;
@@ -149,24 +163,42 @@ public partial class MainWindow
         {
             SetPerformanceContext();
             var report = await _performanceLogger.StopAsync();
+            var localReport = _performanceLogger.RawExportError is null && _performanceLogger.RawDataDirectory is { } directory
+                ? Path.Combine(directory, "report.md") : null;
             await _performanceLogger.DisposeAsync();
             _performanceLogger = null;
             _performanceTimer?.Stop();
             _performanceReport = report;
             FinishPerformanceDiagnosticSession();
-            _performanceReportSaved = false;
             SavePerformanceButton.IsEnabled = true;
             ViewPerformanceReportButton.IsEnabled = true;
             CompareCurrentBaselineButton.IsEnabled = !string.IsNullOrWhiteSpace(_baselineReportPath);
             StartPerformanceButton.IsEnabled = true;
             PerformanceGame.IsEnabled = true;
             AddMarkerButton.IsEnabled = false;
-            PerformanceStatus.Text = "Report ready. Click Save. Raw recording: " + (_performanceRawDirectory ?? "Unavailable");
-            var saved = !save || SavePerformanceReport();
-            if (!string.IsNullOrWhiteSpace(_baselineReportPath) && File.Exists(_baselineReportPath) &&
-                MessageBox.Show(this, "The retest report is ready. Compare it with the selected baseline now?", "Baseline retest", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
-                CompareCurrentBaseline_Click(this, new RoutedEventArgs());
-            return saved;
+            StartPerformanceButton.Visibility = Visibility.Visible;
+            StopPerformanceButton.Visibility = Visibility.Collapsed;
+            PerformanceMarkerOptions.Visibility = Visibility.Collapsed;
+            PerformanceReportActions.Visibility = Visibility.Visible;
+            OpenLatestReportButton.IsEnabled = false;
+            try
+            {
+                if (localReport is null || !File.Exists(localReport))
+                {
+                    var diagnostics = Path.Combine(_dataDirectory, "Diagnostics");
+                    Directory.CreateDirectory(diagnostics);
+                    localReport = Path.Combine(diagnostics, $"Meh-Tools-report-{DateTime.Now:yyyy-MM-dd-HHmmss}-{Guid.NewGuid():N}.md");
+                    File.WriteAllText(localReport, report, new UTF8Encoding(false));
+                }
+                RegisterSavedPerformanceReport(localReport);
+                PerformanceStatus.Text = "Report saved locally.";
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                PerformanceStatus.Text = "Couldn't save the report automatically. Export a copy to keep it. " + ex.Message;
+                return false;
+            }
         }
         catch (Exception ex)
         {
@@ -179,27 +211,38 @@ public partial class MainWindow
         finally { _performanceBusy = false; }
     }
 
-    private void SavePerformance_Click(object sender, RoutedEventArgs e) => SavePerformanceReport();
-
-    private bool SavePerformanceReport()
+    private void SavePerformance_Click(object sender, RoutedEventArgs e)
     {
-        if (_performanceReport is null) return false;
-        var picker = new Microsoft.Win32.SaveFileDialog { Title = "Save performance report", Filter = "Text report (*.txt)|*.txt|Markdown report (*.md)|*.md", FileName = $"Meh-Tools-report-{DateTime.Now:yyyy-MM-dd-HHmm}.txt", DefaultExt = ".txt" };
-        if (picker.ShowDialog(this) != true) return false;
+        if (_performanceReport is null) return;
+        var picker = new Microsoft.Win32.SaveFileDialog { Title = "Export performance report", Filter = "Text report (*.txt)|*.txt|Markdown report (*.md)|*.md", FileName = $"Meh-Tools-report-{DateTime.Now:yyyy-MM-dd-HHmm}.txt", DefaultExt = ".txt" };
+        if (picker.ShowDialog(this) != true) return;
         try
         {
             File.WriteAllText(picker.FileName, _performanceReport, new UTF8Encoding(false));
-            _performanceReportSaved = true;
-            PerformanceStatus.Text = "Report saved. Raw recording: " + (_performanceRawDirectory ?? "Unavailable");
-            AddSessionAttachment(_performanceSessionId, SessionAttachmentKind.PerformanceReport, picker.FileName,
-                "Unassigned diagnostic report");
-            return true;
+            if (_performanceReportPath is null || !File.Exists(_performanceReportPath)) RegisterSavedPerformanceReport(picker.FileName);
+            PerformanceStatus.Text = "Report exported.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             MessageBox.Show(this, ex.Message, "Couldn't save report", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return false;
         }
+    }
+
+    private void RegisterSavedPerformanceReport(string path)
+    {
+        _performanceReportPath = path;
+        OpenLatestReportButton.IsEnabled = true;
+        AddSessionAttachment(_performanceSessionId, SessionAttachmentKind.PerformanceReport, path, "Unassigned diagnostic report");
+    }
+
+    private void OpenLatestReport_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!File.Exists(_performanceReportPath)) throw new FileNotFoundException("The report is missing. Export a copy to save it again.");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_performanceReportPath!) { UseShellExecute = true });
+        }
+        catch (Exception ex) { PerformanceStatus.Text = "Couldn't open the report. " + ex.Message; }
     }
 
     private async Task<bool> PreparePerformanceForExitAsync()
@@ -210,22 +253,16 @@ public partial class MainWindow
         {
             var answer = MessageBox.Show(this, "A performance log is running. Stop and save it before quitting?", "Performance log", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
             if (answer == MessageBoxResult.Cancel) return false;
-            if (answer == MessageBoxResult.Yes) return await StopPerformanceAsync(true);
+            if (answer == MessageBoxResult.Yes) return await StopPerformanceAsync();
             await _performanceLogger.DisposeAsync();
             _performanceLogger = null;
             FinishPerformanceDiagnosticSession();
             return true;
         }
-        if (!_performanceReportSaved && MessageBox.Show(this, "Your report hasn't been saved. Quit without saving it?", "Unsaved report", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return false;
+        if (_performanceReport is not null && _performanceReportPath is null &&
+            MessageBox.Show(this, "Your report hasn't been saved. Quit without saving it?", "Unsaved report", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return false;
         return true;
     }
-
-    private void BrowseReportPresentMon_Click(object sender, RoutedEventArgs e)
-    {
-        var picker = new Microsoft.Win32.OpenFileDialog { Title = "Choose the PresentMon program", Filter = "Executable files (*.exe)|*.exe" };
-        if (picker.ShowDialog(this) == true) { ReportPresentMonPath.Text = picker.FileName; _settings.PresentMonPath = picker.FileName; }
-    }
-    private void ClearReportPresentMon_Click(object sender, RoutedEventArgs e) { ReportPresentMonPath.Clear(); _settings.PresentMonPath = ""; }
 
     private void AddMarker_Click(object sender, RoutedEventArgs e)
     {
@@ -277,6 +314,8 @@ public partial class MainWindow
             if (!text.Contains("# Performance recording", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("The selected file does not look like a performance report.");
             _baselineReportPath = picker.FileName;
             BaselineReportPathBox.Text = picker.FileName;
+            RetestOptions.Visibility = Visibility.Visible;
+            ClearBaselineButton.IsEnabled = true;
             CompareCurrentBaselineButton.IsEnabled = _performanceReport is not null;
             PerformanceStatus.Text = "Baseline selected. Keep the scene comparable and describe the one setting changed for the retest.";
         }
@@ -286,8 +325,10 @@ public partial class MainWindow
     private void ClearBaselineReport_Click(object sender, RoutedEventArgs e)
     {
         _baselineReportPath = null;
-        BaselineReportPathBox.Clear();
+        BaselineReportPathBox.Text = "";
         RetestChangeBox.Clear();
+        RetestOptions.Visibility = Visibility.Collapsed;
+        ClearBaselineButton.IsEnabled = false;
         CompareCurrentBaselineButton.IsEnabled = false;
         PerformanceStatus.Text = "Baseline cleared. Ready for a normal performance log.";
     }

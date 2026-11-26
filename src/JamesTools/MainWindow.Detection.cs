@@ -77,7 +77,7 @@ public partial class MainWindow
             var evaluation = AutomationPolicy.EvaluateRule(game, processes, settings.Games);
             var effective = EffectiveGameOptionsResolver.Resolve(settings, game);
             var output = new StringBuilder();
-            output.AppendLine(useSaved ? "Viewing saved active settings." : "Viewing current draft settings (recommended); changes take effect after Save.");
+            output.AppendLine(useSaved ? "Viewing saved active settings." : "Viewing current settings, including unsaved edits.");
             output.AppendLine($"Process snapshot: {capturedAt:yyyy-MM-dd HH:mm:ss zzz}. Read-only; no actions were run.");
             output.AppendLine($"Rule: {game.Name} · match mode: {game.MatchMode} · primary: {game.ExecutablePath}");
             output.AppendLine("Primary executable file: " + (File.Exists(game.ExecutablePath) ? "available on disk." : "missing or inaccessible on disk."));
@@ -99,10 +99,12 @@ public partial class MainWindow
 
             var matched = evaluation.Match is not null;
             var watching = settings.AutomationEnabled;
-            var recording = watching && settings.RecordingEnabled && effective.Record && matched;
+            var blockedCapture = evaluation.Match is { } match &&
+                AutomationPolicy.RecordingOptOutProcessIds(AutomationPolicy.MatchAllGames(settings.Games, processes)).Contains(match.Process.Id);
+            var recording = watching && settings.RecordingEnabled && effective.Record && matched && !blockedCapture;
             var captureMode = effective.CaptureMode;
             var recordingMode = recording && captureMode is CaptureMode.Recording or CaptureMode.Both;
-            var replayMode = recording && captureMode is CaptureMode.Replay or CaptureMode.Both;
+            var replayMode = recording && captureMode is CaptureMode.Replay or CaptureMode.Both or CaptureMode.WardogsHighlights;
             var vibrance = watching && settings.VibranceEnabled && effective.UseVibrance && matched;
             var power = watching && settings.PowerEnabled && matched;
             var closeApps = watching && settings.CloseAppsOnGameLaunch && settings.AppsToCloseOnGameLaunch.Count > 0 && matched;
@@ -111,6 +113,7 @@ public partial class MainWindow
             output.AppendLine($"  Watching: {(watching ? "enabled in this snapshot" : "disabled")}.");
             output.AppendLine($"  Recording: {(recordingMode ? "eligible" : "not eligible")}; capture mode {captureMode}; effective Record permission {Bool(effective.Record)}; Recording switch {Bool(settings.RecordingEnabled)}.");
             output.AppendLine($"  Replay buffer: {(replayMode ? "eligible" : "not eligible")}; effective Record permission {Bool(effective.Record)}; Recording switch {Bool(settings.RecordingEnabled)}.");
+            if (blockedCapture && effective.Record) output.AppendLine("  Automatic OBS capture is disabled by an exact rule for this process.");
             output.AppendLine($"  Colours / vibrance: {(vibrance ? "eligible" : "not eligible")}; Vibrance switch {Bool(settings.VibranceEnabled)}; game permission {Bool(effective.UseVibrance)}.");
             output.AppendLine($"    Focus requirement: {(settings.VibranceOnlyWhenFocused ? "required at runtime; foreground state is not checked" : "not required by current settings")}.");
             if (vibrance && settings.VibranceOnlyWhenFocused) output.AppendLine("    Focus is a runtime condition; this preview does not inspect the foreground window.");

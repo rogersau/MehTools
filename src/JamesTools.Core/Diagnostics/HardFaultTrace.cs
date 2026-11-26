@@ -28,7 +28,7 @@ internal sealed class HardFaultTrace : IAsyncDisposable
     public bool Started { get; private set; }
     public long SelectedFaultCount { get; private set; }
     public long SelectedReadBytes { get; private set; }
-    public HardFaultTrace(bool enabled, Stopwatch elapsed, Action<HardFaultObservation>? raw = null, bool? hasTraceAccess = null)
+    public HardFaultTrace(bool enabled, Stopwatch elapsed, Action<HardFaultObservation>? raw = null, bool? hasTraceAccess = null, InvestigationClock? clock = null)
     {
         _raw = raw;
         if (!enabled) return;
@@ -36,7 +36,7 @@ internal sealed class HardFaultTrace : IAsyncDisposable
         {
             // No UAC prompt or privilege changes. Users can still record without ETW access.
             if ((hasTraceAccess ?? TraceEventSession.IsElevated()) != true) { Status = "Unavailable: kernel ETW access requires existing elevated permissions. Normal recording remains active."; return; }
-            _origin = Stopwatch.GetTimestamp() - (long)(elapsed.Elapsed.TotalSeconds * Stopwatch.Frequency);
+            _origin = clock?.OriginQpc ?? Stopwatch.GetTimestamp() - (long)(elapsed.Elapsed.TotalSeconds * Stopwatch.Frequency);
             _session = new TraceEventSession("MehToolsFault-" + Guid.NewGuid().ToString("N")) { StopOnDispose = true, BufferSizeMB = 8 };
             var source = _session.Source;
             var kernel = new KernelTraceEventParser(source, KernelTraceEventParser.ParserTrackingOptions.ThreadToProcess);

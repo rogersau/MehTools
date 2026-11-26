@@ -11,7 +11,7 @@ public partial class MainWindow
     {
         if (_historyOpening) return;
         if (_historyWindow != null) { _historyWindow.Activate(); return; }
-        if (PerformanceGame.SelectedItem is not GameRule game) { PerformanceStatus.Text = "Select a configured game first."; return; }
+        if (SelectedGame(PerformanceGame) is not { } game) { PerformanceStatus.Text = "Select a configured game first."; return; }
         _historyOpening = true;
         try
         {

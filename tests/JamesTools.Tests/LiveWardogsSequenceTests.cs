@@ -29,7 +29,7 @@ internal static class LiveWardogsSequenceTests
     }
     public static async Task Run()
     {
-        OcrRow[] kill = [new("KILL fixture", .1, 90)];
+        OcrRow[] kill = [new("KILL fixture", .1)];
         var s = await Run([Frame(0), Frame(.5), Frame(1), Frame(1.5), Frame(2)], f => f.Timestamp == TimeSpan.Zero ? [] : kill);
         if (s.Events.Length != 1 || s.OcrCalls != 3 || s.Unchanged != 2) throw new Exception("Pending confirmation or unchanged gate failed");
         if (s.Kills != 1 || s.Assists != 0 || s.Events[0].Timestamp != TimeSpan.FromSeconds(.5)) throw new Exception("Lifetime count or first-observed time failed");
@@ -37,9 +37,16 @@ internal static class LiveWardogsSequenceTests
         if (s.Stale != 2) throw new Exception("Repeated frame accepted");
         s = await Run([Frame(0), Frame(.5), Frame(1, 2), Frame(1.5, 2), Frame(2, 2, 64), Frame(2.5, 2, 64), Frame(10, 2, 64)], _ => kill);
         if (s.Events.Length != 0) throw new Exception("Reset joined baseline events");
-        s = await Run([Frame(0), Frame(.5), Frame(1), Frame(1.5)], f => f.Timestamp == TimeSpan.Zero ? [] : [new("KILL ASSIST fixture", .1, 90)]);
+        s = await Run([Frame(0), Frame(.5), Frame(1), Frame(1.5)], f => f.Timestamp == TimeSpan.Zero ? [] : [new("KILL ASSIST fixture", .1)]);
         if (s.Events.Length != 1 || s.Events[0].Kind != WardogsEventKind.Assist) throw new Exception("Assist classification failed");
         if (s.Kills != 0 || s.Assists != 1) throw new Exception("Assist was counted as a kill");
+        s = await Run([Frame(0), Frame(.5), Frame(1), Frame(1.5), Frame(2)], f => f.Timestamp.TotalSeconds switch
+        {
+            0 => [],
+            .5 or 1 => [new("KILL +$2,000", .1)],
+            _ => [new("KILL 250XP", .1)]
+        }, new(2, 1, .25));
+        if (s.Kills != 1 || s.Events.Length != 1) throw new Exception("Cash-to-XP transition counted as another kill");
         // An identical blank image still ages disappearing rows at the sample rate.
         var disappearing = new[] { Frame(0), Frame(.5), Frame(1), Frame(1.5), Frame(2), Frame(2.5), Frame(3), Frame(3.5) };
         for (int i = 0; i < disappearing.Length; i++) disappearing[i].Gray[0] = (byte)(i is 1 or 2 or 6 or 7 ? 1 : 0);
@@ -48,7 +55,7 @@ internal static class LiveWardogsSequenceTests
         s = await Run([Frame(0), Frame(.5), Frame(1), Frame(1.5), Frame(2), Frame(2.5), Frame(3), Frame(3.5)], f => f.Timestamp.TotalSeconds is .5 or 1 or 3 or 3.5 ? kill : [], new(2, 1, .25));
         if (s.Events.Length != 2) throw new Exception("Disappearance did not allow a fresh notification");
         var ocr = new Ocr(_ => [], true);
-        try { await new LiveWardogsDetector(new Source([Frame(0)]), ocr).RunAsync(_ => { }, default); throw new Exception("Expected worker failure"); } catch (IOException) { }
+        try { await new LiveWardogsDetector(new Source([Frame(0)]), ocr).RunAsync(_ => { }, default); throw new Exception("Expected OCR failure"); } catch (IOException) { }
         if (!ocr.Disposed) throw new Exception("Failure did not dispose OCR");
         ocr = new Ocr(_ => []); using var canceled = new CancellationTokenSource(); canceled.Cancel();
         try { await new LiveWardogsDetector(new Source([Frame(0)]), ocr).RunAsync(_ => { }, canceled.Token); } catch (OperationCanceledException) { }
@@ -66,7 +73,5 @@ internal static class LiveWardogsSequenceTests
         catch (OperationCanceledException) when (throttledStop.IsCancellationRequested) { }
         try { await duplicate!; throw new Exception("Accepted concurrent start"); } catch (InvalidOperationException) { }
         if (throttled?.Throttled != true || !ocr.Disposed) throw new Exception("Soft budget or stop failed");
-        using var stream = new MemoryStream([255, 255, 255, 127]);
-        try { await HudWorkerProtocol.ReadAsync<HudFrame>(stream, default); throw new Exception("Accepted oversized message"); } catch (InvalidDataException) { }
     }
 }

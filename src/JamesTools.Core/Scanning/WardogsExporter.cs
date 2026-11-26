@@ -15,7 +15,8 @@ public sealed class WardogsExporter(MediaTools media)
         if (scan.Status != ScanStatus.Completed || scan.Result is null || scan.Fingerprint is null || scan.Reviews is null || scan.Result.Candidates is null) throw new InvalidDataException("Choose a completed scan with source evidence.");
         var copy = scan with { Reviews = scan.Reviews.ToArray(), Result = scan.Result with { Candidates = scan.Result.Candidates.ToArray() } };
         if (!double.IsFinite(copy.Result.Duration) || copy.Result.Duration is < .001 or > 10_000_000 || copy.Result.Candidates.Count > 100000
-            || copy.Result.Candidates.Any(c => c is null || c.Id < 1 || !Enum.IsDefined(c.Kind) || !double.IsFinite(c.Seconds) || c.Seconds < 0 || c.Seconds > copy.Result.Duration || c.Text is null || c.Text.Length > 4096 || !double.IsFinite(c.Confidence) || c.Confidence is < 0 or > 1)
+            || !Enum.IsDefined(copy.Result.OcrEngine)
+            || copy.Result.Candidates.Any(c => c is null || c.Id < 1 || !Enum.IsDefined(c.Kind) || !double.IsFinite(c.Seconds) || c.Seconds < 0 || c.Seconds > copy.Result.Duration || c.Text is null || c.Text.Length > 4096 || !c.HasValidConfidence(copy.Result.OcrEngine) || c.Reward is <= 0 or > WardogsMoney.MaximumAmount)
             || new[] { copy.Pre, copy.Post, copy.MergeGap }.Any(v => !double.IsFinite(v) || v is < 0 or > 3600)) throw new InvalidDataException("Invalid candidate or interval metadata.");
         var ids = copy.Result.Candidates.Select(c => c.Id).ToHashSet();
         if (ids.Count != copy.Result.Candidates.Count || copy.Reviews.Length > 100000 || copy.Reviews.Any(r => r is null) || copy.Reviews.Select(r => r.CandidateId).Distinct().Count() != copy.Reviews.Length || copy.Reviews.Any(r => !Enum.IsDefined(r.Decision) || r.Label is null || r.Label.Length > 256 || !ids.Contains(r.CandidateId))) throw new InvalidDataException("Invalid review decisions.");
@@ -27,27 +28,28 @@ public sealed class WardogsExporter(MediaTools media)
         foreach (var i in windows) MediaTools.ValidateRange(i.Start, i.End, copy.Result.Duration);
         return copy;
     }
-    public static async Task<FileStream> VerifiedSourceAsync(SavedWardogsScan scan, CancellationToken token)
+    public static Task<FileStream> VerifiedSourceAsync(SavedWardogsScan scan, CancellationToken token) => Task.Run(() =>
     {
-        var guard = new FileStream(MediaTools.LocalVideo(scan.Source), FileMode.Open, FileAccess.Read, FileShare.Read, 131072, true);
+        var guard = new FileStream(MediaTools.LocalVideo(scan.Source), FileMode.Open, FileAccess.Read, FileShare.Read);
         try {
-            if (scan.Fingerprint is null || await new NativeWardogsScanWork().FingerprintAsync(scan.Source, token) != scan.Fingerprint) throw new IOException("Source missing or changed; rescan before exporting or previewing.");
+            token.ThrowIfCancellationRequested();
+            if (scan.Fingerprint is null || SourceFingerprint.Read(guard) != scan.Fingerprint) throw new IOException("Source file changed. Rescan before opening or exporting.");
             return guard;
-        } catch { await guard.DisposeAsync(); throw; }
-    }
+        } catch { guard.Dispose(); throw; }
+    }, token);
     private static string Clean(string text) => new(text.Select(c => char.IsControl(c) || c is '<' or '>' ? ' ' : c).ToArray());
     private static string Csv(string text) { text = Clean(text); if (text.TrimStart().StartsWith('=') || text.TrimStart().StartsWith('+') || text.TrimStart().StartsWith('-') || text.TrimStart().StartsWith('@')) text = "'" + text; return "\"" + text.Replace("\"", "\"\"") + "\""; }
     private static string Time(double seconds) { var ms = checked((long)Math.Round(seconds * 1000)); return string.Create(CultureInfo.InvariantCulture, $"{ms / 3600000:00}:{ms / 60000 % 60:00}:{ms / 1000 % 60:00},{ms % 1000:000}"); }
     public static string Format(SavedWardogsScan scan, WardogsExportKind kind)
     {
         scan = Capture(scan); var result = new StringBuilder();
-        if (kind == WardogsExportKind.Csv) result.AppendLine("Approximate source seconds,Type,Label,OCR evidence,Confidence,Padded source start seconds,Padded source end seconds");
+        if (kind == WardogsExportKind.Csv) result.AppendLine("Approximate source seconds,Type,Label,OCR evidence,Confidence,Padded source start seconds,Padded source end seconds,Detected cash reward");
         else if (kind == WardogsExportKind.Srt) result.Append("1\r\n00:00:00,000 --> ").Append(Time(Math.Floor(Math.Min(1, scan.Result!.Duration) * 1000) / 1000)).Append("\r\nSTART OF RECORDING\r\n\r\n");
         else throw new ArgumentException("Choose a text export format.");
         int index = 2; var reviews = scan.Reviews.Where(r => r.Decision == ReviewDecision.Keep).ToDictionary(r => r.CandidateId);
         foreach (var c in scan.Result!.Candidates.Where(c => reviews.ContainsKey(c.Id)).OrderBy(c => c.Seconds).ThenBy(c => c.Id)) {
             var r = reviews[c.Id]; var w = WardogsIntervals.Plan([c], scan.Result.Duration, scan.Pre, scan.Post, 0).Single();
-            if (kind == WardogsExportKind.Csv) result.AppendLine(string.Join(",", N(c.Seconds), Csv(c.Kind.ToString()), Csv(r.Label), Csv(c.Text), N(c.Confidence), N(w.Start), N(w.End)));
+            if (kind == WardogsExportKind.Csv) result.AppendLine(string.Join(",", N(c.Seconds), Csv(c.Kind.ToString()), Csv(r.Label), Csv(c.Text), c.Confidence is double score ? N(score) : "", N(w.Start), N(w.End), c.Reward?.ToString(CultureInfo.InvariantCulture) ?? ""));
             else { var end = Math.Floor(w.End * 1000) / 1000; var start = Math.Max(0, Math.Min(Math.Floor(w.Start * 1000) / 1000, end - .001)); if (end <= start) continue; result.Append(index++).Append("\r\n").Append(Time(start)).Append(" --> ").Append(Time(end)).Append("\r\nApproximate ").Append(Clean(c.Kind + " " + r.Label)).Append("\r\n\r\n"); }
         }
         return result.ToString();

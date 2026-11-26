@@ -13,9 +13,8 @@ public partial class GameProfilesEditorWindow : Window
     private readonly PowerPlanOption[] _powerPlans;
     public ObservableCollection<GameProfile> Profiles { get; }
     private IReadOnlyList<ProfileValueOption<CaptureMode>> CaptureModes { get; } =
-        [new(null, "Inherit"), new(CaptureMode.Recording, "Recording"), new(CaptureMode.Replay, "Replay"), new(CaptureMode.Both, "Both")];
-    private IReadOnlyList<ProfileValueOption<OverlayPreset>> OverlayPresets { get; } =
-        [new(null, "Inherit"), new(OverlayPreset.Minimal, "Minimal (FPS)"), new(OverlayPreset.Fps, "FPS + frame delay"), new(OverlayPreset.Full, "Full")];
+        [new(null, "Inherit"), new(CaptureMode.Recording, "Recording"), new(CaptureMode.Replay, "Replay"),
+         new(CaptureMode.Both, "Both"), new(CaptureMode.WardogsHighlights, "WARDOGS highlights")];
 
     public GameProfilesEditorWindow(IEnumerable<GameProfile> profiles, IEnumerable<PowerPlanOption> powerPlans,
         IEnumerable<GameRule> games)
@@ -26,7 +25,6 @@ public partial class GameProfilesEditorWindow : Window
         Profiles = new ObservableCollection<GameProfile>(profiles.Select(p => p.Copy()));
         ProfileList.ItemsSource = Profiles;
         CaptureModeBox.SelectedValuePath = nameof(ProfileValueOption<CaptureMode>.Value);
-        OverlayPresetBox.SelectedValuePath = nameof(ProfileValueOption<OverlayPreset>.Value);
         PowerPlanBox.SelectedValuePath = nameof(PowerPlanOption.Id);
         PowerPlanBox.DisplayMemberPath = nameof(PowerPlanOption.Name);
         ProfileList.SelectedIndex = Profiles.Count == 0 ? -1 : 0;
@@ -38,9 +36,8 @@ public partial class GameProfilesEditorWindow : Window
     {
         _loading = true;
         var profile = Selected;
-        ProfileEditor.IsEnabled = profile is not null;
+        ProfileEditor.Visibility = ProfileActions.Visibility = profile is null ? Visibility.Collapsed : Visibility.Visible;
         CaptureModeBox.ItemsSource = WithUnsupported(CaptureModes, profile?.CaptureMode, "Unsupported capture mode");
-        OverlayPresetBox.ItemsSource = WithUnsupported(OverlayPresets, profile?.OverlayPreset, "Unsupported overlay preset");
         var availablePlans = new[] { new PowerPlanOption(null, "Inherit") }.Concat(_powerPlans).ToList();
         if (profile?.PowerPlanId is Guid unknownPlan && unknownPlan != Guid.Empty && _powerPlans.All(plan => plan.Id != unknownPlan))
             availablePlans.Add(new PowerPlanOption(unknownPlan, $"Unavailable plan ({unknownPlan})"));
@@ -51,7 +48,6 @@ public partial class GameProfilesEditorWindow : Window
         DelayBox.Text = profile?.RecordingStopDelaySeconds?.ToString() ?? "";
         VibranceBox.Text = profile?.VibrancePercent?.ToString() ?? "";
         CaptureModeBox.SelectedItem = CaptureModeBox.Items.Cast<ProfileValueOption<CaptureMode>>().FirstOrDefault(option => option.Value == profile?.CaptureMode);
-        OverlayPresetBox.SelectedItem = OverlayPresetBox.Items.Cast<ProfileValueOption<OverlayPreset>>().FirstOrDefault(option => option.Value == profile?.OverlayPreset);
         Guid? power = profile?.PowerPlanId is Guid id && id != Guid.Empty ? id : null;
         PowerPlanBox.SelectedItem = availablePlans.FirstOrDefault(option => option.Id == power);
         _loading = false;
@@ -70,7 +66,6 @@ public partial class GameProfilesEditorWindow : Window
         profile.Name = NameBox.Text.Trim();
         profile.RecordingDirectory = string.IsNullOrWhiteSpace(DirectoryBox.Text) ? null : DirectoryBox.Text.Trim();
         profile.CaptureMode = CaptureModeBox.SelectedValue is CaptureMode capture ? capture : null;
-        profile.OverlayPreset = OverlayPresetBox.SelectedValue is OverlayPreset overlay ? overlay : null;
         profile.PowerPlanId = PowerPlanBox.SelectedValue is Guid power && power != Guid.Empty ? power : null;
         if (TryOptionalInt(ReplayBox.Text, out var replay)) profile.ReplayBufferSeconds = replay;
         if (TryOptionalInt(DelayBox.Text, out var delay)) profile.RecordingStopDelaySeconds = delay;

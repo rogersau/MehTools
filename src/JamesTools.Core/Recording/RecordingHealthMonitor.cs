@@ -120,7 +120,7 @@ public sealed class RecordingHealthMonitor
     {
         if (!_enabled || !_connected || connectionGeneration != _connectionGeneration ||
             observationGeneration is long generation && generation != _observationGeneration) return Snapshot;
-        if (_requestId is not null && _requestedMode == CaptureMode.Replay)
+        if (_requestId is not null && _requestedMode is CaptureMode.Replay or CaptureMode.WardogsHighlights)
         {
             _hasSample = false;
             _activeObserved = false;

@@ -50,7 +50,7 @@ internal static class TransportTests
         using var directory = new TestDirectory();
         using var backend = new FixtureBackend();
         LargeSessionFixture.Write(Path.Combine(directory.Path, "sessions"));
-        await using var sessions = new DiagnosticSessionService(backend, Path.Combine(directory.Path, "sessions"));
+        await using var sessions = new DiagnosticSessionService(backend, Path.Combine(directory.Path, "sessions"), new InvestigationFixture());
         await WithHttpAsync(backend, sessions, async (client, config, token, ct) =>
         {
             Exception? protocolFailure = null;
@@ -163,7 +163,7 @@ internal static class TransportTests
                     Endpoint = new Uri(config.Endpoint), TransportMode = HttpTransportMode.StreamableHttp,
                     AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
                 }), cancellationToken: timeout.Token);
-                Check.That((await reconnect.ListToolsAsync(cancellationToken: timeout.Token)).Count == 10, "HTTP reconnect after clean disconnect failed.");
+                Check.That((await reconnect.ListToolsAsync(cancellationToken: timeout.Token)).Count == EndpointTests.Tools.Length, "HTTP reconnect after clean disconnect failed.");
             }
             finally { await app.StopAsync(CancellationToken.None); }
         }

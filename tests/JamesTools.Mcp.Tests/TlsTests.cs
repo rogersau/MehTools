@@ -84,7 +84,7 @@ internal static class TlsTests
                     AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
                 }, http, ownsHttpClient: false);
                 await using var client = await McpClient.CreateAsync(transport, cancellationToken: timeout.Token);
-                Check.That(client.ServerInfo?.Name == "MehTools" && (await client.ListToolsAsync(cancellationToken: timeout.Token)).Count == 10, "HTTPS initialization/tool discovery failed.");
+                Check.That(client.ServerInfo?.Name == "MehTools" && (await client.ListToolsAsync(cancellationToken: timeout.Token)).Count == EndpointTests.Tools.Length, "HTTPS initialization/tool discovery failed.");
                 var result = Check.Read<SystemInventory>(await EndpointTests.CallAsync(client, "get_system_info", [], timeout.Token));
                 Check.That(result.Components.Single().Name == "Fixture CPU", "HTTPS invocation did not reach the injected backend.");
                 Check.That(validated > 0, "HTTPS did not validate the pinned test certificate.");

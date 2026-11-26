@@ -10,12 +10,14 @@ public sealed class MediaTools(string folder = "", Func<string, IEnumerable<stri
     private static readonly SemaphoreSlim ThumbnailSlots = new(2);
     internal Task<string> Execute(string name, IEnumerable<string> args, TimeSpan timeout, CancellationToken token) => runner is null ? RunAsync(Resolve(folder, name), args, timeout, token) : runner(name, args, timeout, token);
     public static string Resolve(string folder, string name)
+        => Resolve(folder, name, AppContext.BaseDirectory, Environment.GetEnvironmentVariable("PATH") ?? "");
+    internal static string Resolve(string folder, string name, string appDirectory, string searchPath)
     {
         var candidates = string.IsNullOrWhiteSpace(folder)
-            ? new[] { Path.Combine(AppContext.BaseDirectory, "tools") }.Concat((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+            ? new[] { Path.Combine(appDirectory, "tools", "ffmpeg"), Path.Combine(appDirectory, "tools") }.Concat(searchPath.Split(Path.PathSeparator).Where(Path.IsPathFullyQualified))
             : new[] { folder };
         return candidates.Select(p => Path.Combine(p, name + ".exe")).FirstOrDefault(File.Exists)
-            ?? throw new FileNotFoundException("Install FFmpeg locally or Browse to a folder containing ffmpeg.exe and ffprobe.exe; clear the folder to use PATH.");
+            ?? throw new FileNotFoundException("FFmpeg tools are missing. Reinstall Meh Tools or browse to a folder containing ffmpeg.exe and ffprobe.exe; clear the folder to use bundled tools or PATH.");
     }
     public static string LocalVideo(string path)
     {
@@ -85,8 +87,8 @@ public sealed class MediaTools(string folder = "", Func<string, IEnumerable<stri
         using var process = new Process { StartInfo = info };
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(timeout);
         process.Start();
-        async Task<string> Drain(StreamReader reader) { var result = new StringBuilder(); var buffer = new char[4096]; int n; while ((n = await reader.ReadAsync(buffer.AsMemory(), deadline.Token)) > 0) { if (result.Length < 65536) result.Append(buffer, 0, Math.Min(n, 65536-result.Length)); } return result.ToString(); }
-        var stdout = Drain(process.StandardOutput); var stderr = Drain(process.StandardError);
+        var stdout = DrainOutputAsync(process.StandardOutput, 65536, deadline.Token);
+        var stderr = DrainOutputAsync(process.StandardError, 65536, deadline.Token);
         try
         {
             await process.WaitForExitAsync(deadline.Token);
@@ -103,5 +105,15 @@ public sealed class MediaTools(string folder = "", Func<string, IEnumerable<stri
         }
         if (process.ExitCode != 0) throw new IOException("Media tool failed: " + (await stderr)[..Math.Min(2000, (await stderr).Length)]);
         return await stdout;
+    }
+
+    internal static async Task<string> DrainOutputAsync(StreamReader reader, int limit, CancellationToken token = default)
+    {
+        var result = new StringBuilder();
+        var buffer = new char[4096];
+        int count;
+        while ((count = await reader.ReadAsync(buffer.AsMemory(), token)) > 0)
+            if (result.Length < limit) result.Append(buffer, 0, Math.Min(count, limit - result.Length));
+        return result.ToString();
     }
 }

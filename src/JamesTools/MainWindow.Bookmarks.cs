@@ -66,7 +66,10 @@ public partial class MainWindow
         var draft = BookmarkEditLabel?.Text;
         var session = (SessionsList?.SelectedItem as SessionListEntry)?.Session.Id;
         var rows = (_bookmarkStore?.Snapshot() ?? []).Where(b => b.SessionId == session).Select(b => new BookmarkRow(b)).ToArray();
+        SessionMomentsCard.Visibility = session is not null || rows.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         BookmarkList.ItemsSource = rows;
+        BookmarkList.Visibility = rows.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        NoBookmarksText.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         BookmarkList.SelectedItem = rows.FirstOrDefault(row => row.Bookmark.Id == selected);
         if (BookmarkList.SelectedItem is not null && draft is not null) BookmarkEditLabel!.Text = draft;
     }
@@ -76,7 +79,13 @@ public partial class MainWindow
             (Bookmark.RecordingPath is null ? "Unresolved path" : File.Exists(Bookmark.RecordingPath) ? Bookmark.RecordingPath : "Missing: " + Bookmark.RecordingPath);
     }
     private void BookmarkSelection_Changed(object sender, SelectionChangedEventArgs e)
-    { if (BookmarkList.SelectedItem is BookmarkRow row) BookmarkEditLabel.Text = row.Bookmark.Label; }
+    {
+        var row = BookmarkList.SelectedItem as BookmarkRow;
+        BookmarkActions.Visibility = row is null ? Visibility.Collapsed : Visibility.Visible;
+        if (row is null) return;
+        BookmarkEditLabel.Text = row.Bookmark.Label;
+        OpenBookmarkButton.IsEnabled = File.Exists(row.Bookmark.RecordingPath);
+    }
     private void EditBookmark_Click(object sender, RoutedEventArgs e) => MutateBookmark(false);
     private void RemoveBookmark_Click(object sender, RoutedEventArgs e) => MutateBookmark(true);
     private void MutateBookmark(bool remove)

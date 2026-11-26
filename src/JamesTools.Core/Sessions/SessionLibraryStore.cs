@@ -31,6 +31,19 @@ public sealed class SessionLibraryStore
         lock (_sync) return _sessions.FirstOrDefault(s => s.Id == id) is { } session ? Clone(session) : null;
     }
 
+    public Guid? FindVideoSession(string fullPath)
+    {
+        lock (_sync)
+        {
+            var matches = _sessions.Where(session => session.Attachments.Any(attachment =>
+                attachment.Kind is SessionAttachmentKind.Recording or SessionAttachmentKind.Clip &&
+                string.Equals(attachment.Path, fullPath, StringComparison.OrdinalIgnoreCase))).ToArray();
+            var gameSessions = matches.Where(session => !string.IsNullOrWhiteSpace(session.ExecutableKey)).ToArray();
+            if (gameSessions.Length == 1) return gameSessions[0].Id;
+            return matches.Length == 1 ? matches[0].Id : null;
+        }
+    }
+
     public GameSession Create(string name, string executableKey, DateTime observedUtc, SessionStatus status = SessionStatus.Active)
     {
         lock (_sync)

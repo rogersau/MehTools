@@ -1,0 +1,7 @@
+{
+  "w64devkit": { "version": "2.11.0", "url": "https://github.com/skeeto/w64devkit/releases/download/v2.11.0/w64devkit-x64-2.11.0.7z.exe", "sha256": "54c2bb9962e8a30c8270e34c5efc3d5fee579f53087fa7d435b95fbba2af7b2b", "file": "w64devkit.7z.exe", "buildOnly": true },
+  "nasm": { "version": "2.16.03", "url": "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip", "sha256": "3ee4782247bcb874378d02f7eab4e294a84d3d15f3f6ee2de2f47a46aa7226e6", "file": "nasm216.download", "strip": 1, "buildOnly": true },
+  "ffmpeg": { "version": "9.0.2", "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz", "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e", "file": "ffmpeg.download", "strip": 1 },
+  "aom": { "version": "3.13.1", "url": "https://aomedia.googlesource.com/aom/+archive/refs/tags/v3.13.1.tar.gz", "sha256": "ef6b893c1b835ea2367a68a3a61c708f5727c7c3594cb0f2826170540399f993", "file": "aom.download", "strip": 0 },
+  "zlib": { "version": "1.4", "url": "https://codeload.github.com/madler/zlib/tar.gz/refs/tags/v1.4", "sha256": "4331355048e286908260fdbeaa0b8cf75ceaf2907c75855a093a6487c7032aaa", "file": "zlib.download", "strip": 1 }
+}

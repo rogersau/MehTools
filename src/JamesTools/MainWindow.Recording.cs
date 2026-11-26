@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.ComponentModel;
+using System.Net.WebSockets;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -12,6 +14,8 @@ namespace JamesTools;
 
 public partial class MainWindow
 {
+    private const string ReplayBufferUnavailable = "Unavailable in OBS";
+    private static readonly TimeSpan ObsReconnectInterval = TimeSpan.FromSeconds(3);
     private readonly DispatcherTimer _obsPollTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly RecordingHealthMonitor _recordingHealth = new();
     private readonly long _recordingHealthClockOrigin = Stopwatch.GetTimestamp();
@@ -19,10 +23,13 @@ public partial class MainWindow
     private long _automationLifecycleGeneration;
     private AutomationRecordingLifecycle? _latestAutomationLifecycle;
     private ObsWebSocketClient? _obsClient;
+    private ObsConnection? _obsConnection;
+    private TimeSpan _obsReconnectAt;
     private string? _lastObsRecordingPath;
     private string? _lastObsClipPath;
     private Guid? _obsRecordingSessionId;
     private bool _obsRecordingOwnerCaptured;
+    private bool _obsRecordingOutputActive;
     private Guid? _obsReplaySessionId;
     private bool _obsReplayOwnerCaptured;
     private bool _obsPollInProgress;
@@ -30,6 +37,13 @@ public partial class MainWindow
     private int _storageRefreshVersion;
     private int _cleanupRefreshVersion;
     private CleanupPreview? _cleanupPreview;
+
+    private sealed class ObsConnection(int port, string password, bool? rememberPassword = null)
+    {
+        public int Port { get; } = port;
+        public string Password { get; } = password;
+        public bool? RememberPassword { get; set; } = rememberPassword;
+    }
 
     private void InitializeRecordingPanel()
     {
@@ -69,6 +83,11 @@ public partial class MainWindow
         var now = RecordingHealthNow();
         var newLaunch = _latestAutomationLifecycle?.LaunchId != lifecycle.LaunchId;
         _latestAutomationLifecycle = lifecycle;
+        if (!lifecycle.IsOwned || lifecycle.IntentionalStop || newLaunch)
+            _ = StopWardogsHighlightsAsync();
+        if (lifecycle.RequestedMode == CaptureMode.WardogsHighlights && lifecycle.IsOwned && !lifecycle.IntentionalStop)
+            ShowWardogsHighlights(_obsClient?.IsConnected == true ? "Waiting for the replay buffer…" : "Connect to OBS to save highlights.");
+        else ShowWardogsHighlights(null);
         if (lifecycle.IsOwned && newLaunch)
             _recordingHealth.BeginRequest(lifecycle.LaunchId, lifecycle.RequestedMode, now);
         // A manual recording request can replace the launch request within the same OBS process.
@@ -160,6 +179,7 @@ public partial class MainWindow
         if (_sessionStore is null) { CleanupPreviewSummary.Text = "Session history is unavailable."; return; }
         var version = ++_cleanupRefreshVersion;
         _cleanupPreview = null;
+        CleanupActions.Visibility = Visibility.Collapsed;
         CleanupPreviewGrid.ItemsSource = null;
         try
         {
@@ -172,6 +192,7 @@ public partial class MainWindow
             var preview = await Task.Run(() => CleanupPreviewBuilder.Build(sessions, roots, now, ageDays, budget));
             if (_exiting || version != _cleanupRefreshVersion) return;
             _cleanupPreview = preview;
+            CleanupActions.Visibility = Visibility.Visible;
             CleanupPreviewGrid.ItemsSource = preview.Entries.Select(e => new CleanupPreviewRow(e)).ToArray();
             var reclaimable = preview.PotentialReclaimableBytes is long size ? FormatStorageBytes(size) : "unknown";
             CleanupPreviewSummary.Text = $"Suggestions only · {preview.Entries.Count(e => e.Candidate)} candidate(s) · potential reclaimable: {reclaimable}. Refresh to re-evaluate; nothing is removed.";
@@ -206,6 +227,11 @@ public partial class MainWindow
         catch (Exception ex) { CleanupPreviewSummary.Text = "Couldn't open folder: " + ex.Message; }
     }
 
+    private void CleanupPreviewGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CleanupOpenSelected is not null) CleanupOpenSelected.IsEnabled = CleanupPreviewGrid.SelectedItem is CleanupPreviewRow;
+    }
+
     private sealed record RecordingStorageTargetOption(GameRule? Game, string Label);
     private sealed record CleanupPreviewRow(CleanupPreviewEntry Entry)
     {
@@ -218,69 +244,177 @@ public partial class MainWindow
 
     private async void ObsConnect_Click(object sender, RoutedEventArgs e)
     {
-        if (_exiting || _obsClient is not null) return;
-        if (_settings.ObsWebSocketPort is < 1 or > 65535)
+        if (_exiting || _obsConnection is not null) return;
+        if (!TryReadObsPort(out var port))
         {
             ShowObsError("Enter a WebSocket port from 1 to 65535.");
             return;
         }
 
         var password = ObsWebSocketPasswordBox.Password;
+        if (password.Length == 0) password = ReadSavedObsPassword(port)?.Password ?? "";
         ObsWebSocketPasswordBox.Clear();
+        await BeginObsConnectionAsync(new ObsConnection(port, password, ObsRememberPasswordBox.IsChecked == true));
+    }
+
+    private async Task ResumeSavedObsConnectionAsync()
+    {
+        if (_exiting || _obsConnection is not null || _appliedSettings.ObsWebSocketPort is < 1 or > 65535) return;
+        var port = _appliedSettings.ObsWebSocketPort;
+        if (ReadSavedObsPassword(port) is { AutoConnect: true } saved) await BeginObsConnectionAsync(new ObsConnection(port, saved.Password));
+    }
+
+    private Task BeginObsConnectionAsync(ObsConnection connection)
+    {
+        _obsConnection = connection;
         ObsRemoteError.Visibility = Visibility.Collapsed;
         ObsConnectionStatus.Text = "Connecting to OBS on this PC…";
-        ObsConnectButton.IsEnabled = false;
+        return OpenObsConnectionAsync(connection);
+    }
+
+    private bool TryReadObsPort(out int port)
+    {
+        port = _settings.ObsWebSocketPort;
+        return port is >= 1 and <= 65535 && !Validation.GetHasError(ObsWebSocketPortBox);
+    }
+
+    private void ObsPort_Changed(object sender, TextChangedEventArgs e)
+    {
+        if (ObsCredentialStatus is null || _obsConnection is not null) return;
+        if (int.TryParse(ObsWebSocketPortBox.Text, out var port) && port is >= 1 and <= 65535) ReadSavedObsPassword(port);
+        else ShowSavedObsPassword(false);
+    }
+
+    private ObsPasswordStore.SavedPassword? ReadSavedObsPassword(int port)
+    {
+        try
+        {
+            var saved = ObsPasswordStore.Read(port);
+            ShowSavedObsPassword(saved is not null);
+            return saved;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidDataException)
+        {
+            // Keep the delete action accessible for a malformed or unreadable entry.
+            ShowSavedObsPassword(true, "Couldn't read the saved OBS password. " + ex.Message);
+            return null;
+        }
+    }
+
+    private void ShowSavedObsPassword(bool saved, string? message = null)
+    {
+        ObsForgetPasswordButton.Visibility = saved ? Visibility.Visible : Visibility.Collapsed;
+        ObsCredentialStatus.Text = message ?? (saved ? "OBS password saved on this PC." : "");
+    }
+
+    private void ObsForgetPassword_Click(object sender, RoutedEventArgs e)
+    {
+        if (_obsConnection is not null || !TryReadObsPort(out var port)) return;
+        try
+        {
+            ObsPasswordStore.Forget(port);
+            ShowSavedObsPassword(false, "Saved OBS password removed.");
+        }
+        catch (Win32Exception ex) { ShowSavedObsPassword(true, "Couldn't remove the saved OBS password. " + ex.Message); }
+    }
+
+    private void SaveObsPasswordAfterAuthentication(ObsConnection connection, ObsWebSocketClient client)
+    {
+        if (connection.RememberPassword is not { } remember) return;
+        connection.RememberPassword = null;
+        try
+        {
+            if (remember && client.UsesAuthentication)
+            {
+                ObsPasswordStore.Save(connection.Port, connection.Password);
+                ShowSavedObsPassword(true);
+            }
+            else if (!remember)
+            {
+                ObsPasswordStore.Forget(connection.Port);
+                ShowSavedObsPassword(false);
+            }
+        }
+        catch (Exception ex) when (ex is Win32Exception or ArgumentException)
+        {
+            ShowSavedObsPassword(true, "Couldn't update the saved OBS password. " + ex.Message);
+        }
+    }
+
+    private void PauseSavedObsConnection()
+    {
+        if (_obsConnection is not { } connection) return;
+        try { ObsPasswordStore.PauseAutoConnect(connection.Port); }
+        catch (Exception ex) when (ex is Win32Exception or InvalidDataException or ArgumentException)
+        {
+            ShowSavedObsPassword(true, "Couldn't pause startup connection. " + ex.Message);
+        }
+    }
+
+    private async Task OpenObsConnectionAsync(ObsConnection connection)
+    {
+        _obsPollTimer.Stop();
         var client = new ObsWebSocketClient();
         client.RecordStateChanged += ObsClient_RecordStateChanged;
         client.RecordFileChanged += ObsClient_RecordFileChanged;
         _obsClient = client;
         var connectionGeneration = ++_obsConnectionGeneration;
+        UpdateObsControls();
         try
         {
-            await client.ConnectAsync(_settings.ObsWebSocketPort, password);
+            await client.ConnectAsync(connection.Port, connection.Password);
             if (_exiting || !ReferenceEquals(_obsClient, client)) return;
+            SaveObsPasswordAfterAuthentication(connection, client);
             _recordingHealth.Connected(connectionGeneration, RecordingHealthNow());
             ApplyRecordingHealthSnapshot(_recordingHealth.Snapshot);
-            ObsConnectionStatus.Text = $"Connected to OBS WebSocket on localhost:{_settings.ObsWebSocketPort}.";
-            _obsPollTimer.Start();
+            ObsConnectionStatus.Text = "Connected to OBS on this PC.";
             await PollObsStatusAsync();
         }
         catch (Exception ex)
         {
-            if (ReferenceEquals(_obsClient, client))
-            {
-                _obsClient = null;
-                _recordingHealth.Disconnected(connectionGeneration);
-                client.RecordStateChanged -= ObsClient_RecordStateChanged;
-                client.RecordFileChanged -= ObsClient_RecordFileChanged;
-                await client.DisposeAsync();
-            }
-            if (_obsClient is null && !_exiting)
-            {
-                ObsConnectionStatus.Text = "Not connected";
-                ObsOutputState.Text = "Unknown";
-                ShowObsError(ex.Message);
-            }
+            if (!_exiting && ReferenceEquals(_obsClient, client)) await HandleObsConnectionFailureAsync(ex);
         }
         finally
         {
-            password = string.Empty;
+            if (!_exiting && ReferenceEquals(_obsConnection, connection)) _obsPollTimer.Start();
             UpdateObsControls();
         }
     }
 
-    private async void ObsDisconnect_Click(object sender, RoutedEventArgs e) => await DisconnectObsAsync();
+    private async void ObsDisconnect_Click(object sender, RoutedEventArgs e)
+    {
+        PauseSavedObsConnection();
+        await DisconnectObsAsync();
+    }
 
-    private async Task DisconnectObsAsync(bool connectionLost = false)
+    private Task HandleObsConnectionFailureAsync(Exception error)
+    {
+        // OBS protocol errors include rejected passwords and sessions ended explicitly in OBS.
+        bool reconnect = error is WebSocketException or TimeoutException or (IOException and not ObsWebSocketException);
+        if (reconnect) ObsRemoteError.Visibility = Visibility.Collapsed;
+        else
+        {
+            PauseSavedObsConnection();
+            ShowObsError(error.Message);
+        }
+        return DisconnectObsAsync(connectionLost: true, reconnect: reconnect);
+    }
+
+    private async Task DisconnectObsAsync(bool connectionLost = false, bool reconnect = false)
     {
         _bookmarkCapture.BreakContinuity();
         _obsPollTimer.Stop();
+        var connection = reconnect && !_exiting ? _obsConnection : null;
+        _obsConnection = connection;
+        _obsReconnectAt = RecordingHealthNow() + ObsReconnectInterval;
         var generation = _obsConnectionGeneration;
         var client = _obsClient;
         _obsClient = null;
+        var highlightsStopped = StopWardogsHighlightsAsync();
+        if (ActiveWardogsCapture is not null) ShowWardogsHighlights("Connect to OBS to save highlights.");
         _recordingHealth.Disconnected(generation, connectionLost);
         ApplyRecordingHealthSnapshot(_recordingHealth.Snapshot);
-        ObsConnectionStatus.Text = "Not connected";
+        ObsConnectionStatus.Text = connection is null ? "Not connected" : "Waiting for OBS to open…";
         ObsOutputState.Text = "Unknown";
         ObsReplayState.Text = "Unknown";
         ObsDuration.Text = "—";
@@ -290,16 +424,26 @@ public partial class MainWindow
         {
             _obsRecordingSessionId = null;
             _obsRecordingOwnerCaptured = false;
+            _obsRecordingOutputActive = false;
             _obsReplaySessionId = null;
             _obsReplayOwnerCaptured = false;
             client.RecordStateChanged -= ObsClient_RecordStateChanged;
             client.RecordFileChanged -= ObsClient_RecordFileChanged;
-            await client.DisposeAsync();
+            try { await client.DisposeAsync(); }
+            catch (Exception ex) { AddActivity("Couldn't close the OBS connection cleanly. " + ex.Message); }
         }
+        await highlightsStopped;
+        if (connection is not null && ReferenceEquals(connection, _obsConnection) && !_exiting) _obsPollTimer.Start();
         UpdateObsControls();
     }
 
-    private async void ObsPollTimer_Tick(object? sender, EventArgs e) => await PollObsStatusAsync();
+    private async void ObsPollTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_exiting) return;
+        if (_obsClient is not null) await PollObsStatusAsync();
+        else if (_obsConnection is { } connection && RecordingHealthNow() >= _obsReconnectAt)
+            await OpenObsConnectionAsync(connection);
+    }
 
     private async Task PollObsStatusAsync()
     {
@@ -317,21 +461,16 @@ public partial class MainWindow
             var health = _recordingHealth.Observe(connectionGeneration, status, RecordingHealthNow(), observationGeneration);
             ApplyRecordingHealthSnapshot(health);
             ObsOutputState.Text = status.Active ? status.Paused ? "Paused" : "Recording" : "Stopped";
+            ObserveObsRecordingForWardogs(status.Active);
             if (status.Active && !_obsRecordingOwnerCaptured)
-            {
-                // A managed OBS launch has a known game owner. External OBS
-                // remains unassigned, including later pause/resume events.
-                var ownerPath = _automation.RecordingGamePath;
-                _obsRecordingSessionId = string.IsNullOrWhiteSpace(ownerPath) ? null : _sessionTracker?.FindActive(ownerPath)?.Id;
-                _obsRecordingOwnerCaptured = true;
-            }
+                CaptureObsRecordingOwner(allowSingleSession: false);
             if (bookmarkGeneration == _bookmarkCapture.Generation && bookmarkStatusVersion == _bookmarkStatusVersion)
                 _bookmarkCapture.Observe(status, _obsRecordingSessionId);
             ObsDuration.Text = TimeSpan.FromMilliseconds(Math.Max(0, status.DurationMilliseconds)).ToString(status.DurationMilliseconds >= 3_600_000 ? "h\\:mm\\:ss" : "mm\\:ss");
             ObsDataWritten.Text = FormatBytes(status.Bytes);
             var replayStatus = await client.GetReplayBufferStatusAsync();
             if (_exiting || !ReferenceEquals(_obsClient, client)) return;
-            ObsReplayState.Text = replayStatus.Active ? "Running" : "Stopped";
+            ObsReplayState.Text = !replayStatus.Available ? ReplayBufferUnavailable : replayStatus.Active ? "Running" : "Stopped";
             if (replayStatus.Active && !_obsReplayOwnerCaptured)
             {
                 var ownerPath = _automation.RecordingGamePath;
@@ -343,15 +482,16 @@ public partial class MainWindow
                 _obsReplaySessionId = null;
                 _obsReplayOwnerCaptured = false;
             }
-            ObsConnectionStatus.Text = "Connected to OBS WebSocket on localhost.";
+            ObsConnectionStatus.Text = "Connected to OBS on this PC.";
             ObsRemoteError.Visibility = Visibility.Collapsed;
+            await AdvanceWardogsHighlightsAsync(client, status.Active, replayStatus.Active);
         }
         catch (Exception ex)
         {
-            if (ReferenceEquals(_obsClient, client))
+            if (!_exiting && ReferenceEquals(_obsClient, client))
             {
-                ShowObsError(ex.Message);
-                await DisconnectObsAsync(connectionLost: true);
+                if (ex is ObsWebSocketException && client.IsConnected) ShowObsError(ex.Message);
+                else await HandleObsConnectionFailureAsync(ex);
             }
         }
         finally
@@ -361,9 +501,9 @@ public partial class MainWindow
         }
     }
 
-    private async void ObsClient_RecordStateChanged(object? sender, ObsRecordStateChangedEventArgs e)
+    private void ObsClient_RecordStateChanged(object? sender, ObsRecordStateChangedEventArgs e)
     {
-        await Dispatcher.InvokeAsync(() =>
+        _ = Dispatcher.BeginInvoke(() =>
         {
             if (_exiting || !ReferenceEquals(sender, _obsClient)) return;
             var completedCapture = _bookmarkCapture.ObserveState(e);
@@ -371,13 +511,10 @@ public partial class MainWindow
             {
                 _obsRecordingSessionId = null;
                 _obsRecordingOwnerCaptured = false;
+                CaptureObsRecordingOwner(allowSingleSession: true);
             }
             if (e.Active && !_obsRecordingOwnerCaptured)
-            {
-                var ownerPath = _automation.RecordingGamePath;
-                _obsRecordingSessionId = string.IsNullOrWhiteSpace(ownerPath) ? null : _sessionTracker?.FindActive(ownerPath)?.Id;
-                _obsRecordingOwnerCaptured = true;
-            }
+                CaptureObsRecordingOwner(allowSingleSession: e.State == "OBS_WEBSOCKET_OUTPUT_STARTED");
             else if (e.State == "OBS_WEBSOCKET_OUTPUT_STOPPED")
             {
                 ConfirmBookmarkPath(completedCapture, e.OutputPath);
@@ -385,9 +522,31 @@ public partial class MainWindow
                 _obsRecordingSessionId = null;
                 _obsRecordingOwnerCaptured = false;
             }
+            ObserveObsRecordingForWardogs(e.Active || e.State == "OBS_WEBSOCKET_OUTPUT_STARTING");
             ObsOutputState.Text = e.Active ? e.Paused ? "Paused" : "Recording" : "Stopped";
             UpdateObsControls();
         });
+    }
+
+    private void CaptureObsRecordingOwner(bool allowSingleSession)
+    {
+        var ownerPath = _automation.RecordingGamePath;
+        if (!string.IsNullOrWhiteSpace(ownerPath))
+        {
+            _obsRecordingSessionId = _sessionTracker?.FindActive(ownerPath)?.Id;
+            _obsRecordingOwnerCaptured = _obsRecordingSessionId is not null;
+            return;
+        }
+        if (allowSingleSession && _sessionTracker?.ActiveSessions is { Count: 1 } active)
+            _obsRecordingSessionId = active.Values.Single();
+        _obsRecordingOwnerCaptured = true;
+    }
+
+    private void ObserveObsRecordingForWardogs(bool active)
+    {
+        if (_obsRecordingOutputActive == active) return;
+        _obsRecordingOutputActive = active;
+        UpdateWardogsBackground();
     }
 
     private async void ObsStart_Click(object sender, RoutedEventArgs e)
@@ -467,8 +626,8 @@ public partial class MainWindow
             if (ReferenceEquals(_obsClient, client))
             {
                 completed?.Invoke(false);
-                ShowObsError(ex.Message);
-                if (!client.IsConnected) await DisconnectObsAsync(connectionLost: true);
+                if (client.IsConnected) ShowObsError(ex.Message);
+                else await HandleObsConnectionFailureAsync(ex);
             }
         }
         finally
@@ -499,17 +658,23 @@ public partial class MainWindow
         catch (Exception ex) { ShowObsError("Couldn't open the recording: " + ex.Message); }
     }
 
-    private async Task SaveClipAsync(bool fromHotkey)
+    private async Task SaveClipAsync(bool fromHotkey, WardogsHighlightRun? highlight = null)
     {
         var client = _obsClient;
-        var sessionId = _obsReplaySessionId;
+        var sessionId = highlight is null ? _obsReplaySessionId : highlight.SessionId;
         if (_exiting || _obsCommandInProgress) return;
         if (client?.IsConnected != true)
         {
-            const string message = "Connect to OBS on the Recording page before saving a clip.";
+            var message = _obsConnection is null ? "Connect to OBS on the Recording page before saving a clip." : "Wait for OBS to open before saving a clip.";
             ShowObsError(message);
-            ObsConnectionStatus.Text = "Connection required to save clips.";
             if (fromHotkey && _settings.ShowNotifications) _tray.ShowBalloonTip(3000, "OBS connection required", message, System.Windows.Forms.ToolTipIcon.Info);
+            return;
+        }
+        if (ObsReplayState.Text == ReplayBufferUnavailable)
+        {
+            const string message = "Enable Replay Buffer in OBS to save a clip.";
+            ShowObsError(message);
+            if (fromHotkey && _settings.ShowNotifications) _tray.ShowBalloonTip(3000, ReplayBufferUnavailable, message, System.Windows.Forms.ToolTipIcon.Info);
             return;
         }
         _obsCommandInProgress = true;
@@ -522,15 +687,24 @@ public partial class MainWindow
             SetLastObsClip(path, sessionId);
             ObsConnectionStatus.Text = "Clip saved: " + path;
             ObsRemoteError.Visibility = Visibility.Collapsed;
-            if (_settings.ShowNotifications) _tray.ShowBalloonTip(4000, "Clip saved", path, System.Windows.Forms.ToolTipIcon.Info);
+            if (highlight is not null)
+            {
+                highlight.Saved++;
+                AddActivity("WARDOGS highlight saved: " + path);
+            }
+            else if (_settings.ShowNotifications) _tray.ShowBalloonTip(4000, "Clip saved", path, System.Windows.Forms.ToolTipIcon.Info);
         }
         catch (Exception ex)
         {
             if (ReferenceEquals(_obsClient, client))
             {
-                ShowObsError(ex.Message);
-                ObsConnectionStatus.Text = client.IsConnected ? "Connected to OBS; clip save failed." : "OBS connection lost.";
-                if (!client.IsConnected) await DisconnectObsAsync(connectionLost: true);
+                if (highlight is not null)
+                {
+                    highlight.SaveError = ex.Message;
+                    AddActivity("Couldn't save WARDOGS highlight: " + ex.Message);
+                }
+                if (client.IsConnected) ShowObsError(ex.Message);
+                else await HandleObsConnectionFailureAsync(ex);
             }
         }
         finally
@@ -565,13 +739,30 @@ public partial class MainWindow
     {
         var connected = _obsClient?.IsConnected == true;
         var busy = _obsCommandInProgress;
-        ObsConnectButton.IsEnabled = !_exiting && !busy && _obsClient is null;
-        ObsDisconnectButton.IsEnabled = connected && !busy;
+        var monitoring = _obsConnection is not null;
+        var connectedVisibility = connected ? Visibility.Visible : Visibility.Collapsed;
+        var setupVisibility = monitoring ? Visibility.Collapsed : Visibility.Visible;
+        ObsConnectButton.Visibility = ObsPasswordLabel.Visibility = ObsWebSocketPasswordBox.Visibility =
+            ObsRememberPasswordBox.Visibility = ObsConnectionOptions.Visibility = setupVisibility;
+        ObsDisconnectButton.Visibility = monitoring ? Visibility.Visible : Visibility.Collapsed;
+        ObsDisconnectButton.Content = connected ? "Disconnect" : "Cancel connection";
+        ObsLiveDetails.Visibility = connectedVisibility;
+        ObsSavedOutputs.Visibility = _lastObsRecordingPath is not null || _lastObsClipPath is not null ? Visibility.Visible : Visibility.Collapsed;
+        ObsConnectButton.IsEnabled = !_exiting && !busy && !monitoring;
+        ObsDisconnectButton.IsEnabled = !_exiting && monitoring && !busy;
         var state = ObsOutputState.Text;
+        ObsStartButton.Visibility = state == "Stopped" ? Visibility.Visible : Visibility.Collapsed;
+        ObsStopButton.Visibility = state is "Recording" or "Paused" ? Visibility.Visible : Visibility.Collapsed;
+        ObsPauseButton.Visibility = state == "Recording" ? Visibility.Visible : Visibility.Collapsed;
+        ObsResumeButton.Visibility = state == "Paused" ? Visibility.Visible : Visibility.Collapsed;
+        ObsBookmarkActions.Visibility = ObsStopButton.Visibility;
+        ObsBookmarkActions.IsEnabled = !busy;
         ObsStartButton.IsEnabled = connected && !busy && state == "Stopped";
         ObsStopButton.IsEnabled = connected && !busy && state is "Recording" or "Paused";
         ObsPauseButton.IsEnabled = connected && !busy && state == "Recording";
         ObsResumeButton.IsEnabled = connected && !busy && state == "Paused";
+        ObsStartReplayButton.Visibility = ObsReplayState.Text == "Stopped" ? Visibility.Visible : Visibility.Collapsed;
+        ObsStopReplayButton.Visibility = ObsSaveClipButton.Visibility = ObsReplayState.Text == "Running" ? Visibility.Visible : Visibility.Collapsed;
         ObsStartReplayButton.IsEnabled = connected && !busy && ObsReplayState.Text == "Stopped";
         ObsStopReplayButton.IsEnabled = connected && !busy && ObsReplayState.Text == "Running";
         ObsSaveClipButton.IsEnabled = connected && !busy && ObsReplayState.Text == "Running";

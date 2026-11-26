@@ -9,13 +9,19 @@
         <DockPanel Grid.Column="0">
             <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
                 <Button Content="Add profile" Click="Add_Click" Margin="0,2"/>
-                <Button Content="Duplicate selected" Click="Duplicate_Click" Margin="0,2"/>
-                <Button Content="Delete selected" Click="Delete_Click" Margin="0,2"/>
+                <ui:ActionMenu x:Name="ProfileActions" Content="Profile actions" Visibility="Collapsed" Margin="0,2">
+                    <ui:ActionMenu.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Duplicate profile" Click="Duplicate_Click"/>
+                            <MenuItem Header="Delete profile" Click="Delete_Click"/>
+                        </ContextMenu>
+                    </ui:ActionMenu.ContextMenu>
+                </ui:ActionMenu>
             </StackPanel>
             <ListBox x:Name="ProfileList" DisplayMemberPath="Name" SelectionChanged="ProfileList_SelectionChanged"/>
         </DockPanel>
         <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
-            <StackPanel x:Name="ProfileEditor" IsEnabled="False">
+            <StackPanel x:Name="ProfileEditor" Visibility="Collapsed">
                 <TextBlock Text="Profile name" FontWeight="SemiBold"/>
                 <TextBox x:Name="NameBox" Margin="0,5,0,14" TextChanged="ValueChanged"/>
                 <TextBlock Text="Capture mode" FontWeight="SemiBold"/>
@@ -30,12 +36,10 @@
                 <TextBox x:Name="VibranceBox" Margin="0,5,0,14" TextChanged="ValueChanged"/>
                 <TextBlock Text="Power plan" FontWeight="SemiBold"/>
                 <ComboBox x:Name="PowerPlanBox" Margin="0,5,0,14" SelectionChanged="ValueChanged"/>
-                <TextBlock Text="Overlay preset" FontWeight="SemiBold"/>
-                <ComboBox x:Name="OverlayPresetBox" Margin="0,5,0,14" SelectionChanged="ValueChanged"/>
                 <TextBlock Text="Leave a value blank or choose Inherit to use global settings." TextWrapping="Wrap" Foreground="#AAB6BE" Margin="0,4,0,0"/>
             </StackPanel>
         </ScrollViewer>
-        <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="Changes apply when you click Save in the main window. Capture mode and folder apply to the next OBS launch; they do not change a running capture." TextWrapping="Wrap" Foreground="#AAB6BE" Margin="0,16,0,10"/>
+        <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="Use Save settings in the main window to apply profile changes." TextWrapping="Wrap" Foreground="#AAB6BE" Margin="0,16,0,10"/>
         <StackPanel Grid.Row="2" Grid.ColumnSpan="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,0">
             <Button Content="Cancel" IsCancel="True" MinWidth="90" Margin="0,0,8,0"/>
             <Button Content="Done" IsDefault="True" MinWidth="90" Click="Done_Click"/>

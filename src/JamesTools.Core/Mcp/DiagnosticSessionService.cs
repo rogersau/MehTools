@@ -11,10 +11,11 @@ namespace JamesTools.Core.Mcp;
 /// Retention is seven days, with a 32 MiB ceiling including backups/staging files.
 /// The backend belongs to the host and is never disposed here.
 /// </summary>
-public sealed class DiagnosticSessionService : IDiagnosticSessions
+public sealed class DiagnosticSessionService : IDiagnosticSessions, IStutterInvestigations
 {
     readonly IDiagnosticBackend backend;
     readonly SessionStore store;
+    readonly IInvestigationCaptureFactory investigationFactory;
     readonly object gate = new();
     readonly Dictionary<Guid, State> owned = [];
     readonly SemaphoreSlim wake = new(0, 1), sampleGate = new(1, 1), eventGate = new(1, 1);
@@ -30,11 +31,14 @@ public sealed class DiagnosticSessionService : IDiagnosticSessions
         internal long Deadline = startedAt + (long)session.DurationSeconds * Stopwatch.Frequency;
         internal long Due = startedAt;
         internal Task? Finish;
+        internal Task<IInvestigationCapture>? Capture;
+        internal Task? Refresh;
     }
 
-    public DiagnosticSessionService(IDiagnosticBackend backend, string storageDirectory)
+    public DiagnosticSessionService(IDiagnosticBackend backend, string storageDirectory, IInvestigationCaptureFactory? investigationFactory = null)
     {
         this.backend = backend ?? throw new ArgumentNullException(nameof(backend));
+        this.investigationFactory = investigationFactory ?? new PerformanceInvestigationCaptureFactory();
         store = new SessionStore(storageDirectory);
         try { _ = store.Snapshot(); } catch { store.Dispose(); throw; }
     }
@@ -115,6 +119,52 @@ public sealed class DiagnosticSessionService : IDiagnosticSessions
             worker ??= Task.Run(RunAsync);
             Signal();
             return Task.FromResult(TelemetryData.Copy(session));
+        }
+    }
+
+    public Task<DiagnosticSession> StartInvestigationAsync(int duration, StutterInvestigationOptions options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate(duration);
+        cancellationToken.ThrowIfCancellationRequested();
+        var target = investigationFactory.ValidateTarget(options.ProcessId);
+        lock (gate)
+        {
+            Check(cancellationToken);
+            // One logger per host avoids competing native tracing sessions. Generic sessions remain shared.
+            if (owned.Values.Any(s => s.Capture is not null && (s.Value.Status == "recording" || s.Finish is { IsCompleted: false })))
+                throw new InvalidOperationException("An investigation is already active in this host.");
+            var session = new DiagnosticSession(1, Guid.NewGuid(), "general", DateTimeOffset.UtcNow, null, "recording", duration, 2,
+                [], [], [], [], ["Explicit investigation: local PerformanceLogger capture, at most 300 seconds. Deep mode never elevates. Raw exports/ETL are disabled; only bounded MCP evidence is retained.",
+                    "Frame capture selects all running processes with the validated application's image path; PID/thread identities are recording-scoped."],
+                InvestigationOptions: options);
+            store.Begin(session);
+            PruneOwned(reserve: 1);
+            var state = new State(session, Stopwatch.GetTimestamp());
+            owned.Add(session.Id, state);
+            state.Capture = Task.Run(() => investigationFactory.StartAsync(target, duration, options, lifetime.Token));
+            worker ??= Task.Run(RunAsync);
+            Signal();
+            return Task.FromResult(TelemetryData.Copy(session));
+        }
+    }
+
+    async Task RefreshInvestigationAsync(State state)
+    {
+        try
+        {
+            var capture = await state.Capture!.ConfigureAwait(false);
+            var report = InvestigationRetention.Bound(capture.Snapshot());
+            lock (gate)
+            {
+                if (state.Value.Status != "recording") return;
+                state.Value = state.Value with { Investigation = report };
+                store.Save(state.Value);
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (gate) if (state.Value.Status == "recording") BeginFinish(state, "failed", "Investigation " + TelemetryData.Status(ex) + ": " + TelemetryData.SafeReason(ex));
         }
     }
 
@@ -204,6 +254,17 @@ public sealed class DiagnosticSessionService : IDiagnosticSessions
                     delay = TimeSpan.FromSeconds(Math.Max(0, (active.Min(s => Math.Min(s.Due, s.Deadline)) - now) / (double)Stopwatch.Frequency));
                 }
                 if (due.Length == 0) { await wake.WaitAsync(delay, lifetime.Token).ConfigureAwait(false); continue; }
+                lock (gate)
+                {
+                    foreach (var state in due.Where(s => s.Capture is not null && s.Value.Status == "recording"))
+                    {
+                        state.Due = Stopwatch.GetTimestamp() + 2 * Stopwatch.Frequency;
+                        if (state.Refresh is null || state.Refresh.IsCompleted) state.Refresh = Task.Run(() => RefreshInvestigationAsync(state));
+                    }
+                }
+                // Session kind is immutable; Capture is cleared after stop to release logger buffers.
+                due = due.Where(s => s.Value.InvestigationOptions is null).ToArray();
+                if (due.Length == 0) continue;
                 var sample = await SharedSampleAsync(due.Max(s => s.Value.StartedUtc)).ConfigureAwait(false);
                 lock (gate)
                 {
@@ -258,7 +319,25 @@ public sealed class DiagnosticSessionService : IDiagnosticSessions
     {
         DiagnosticEvent[] events = [];
         var warnings = state.Value.Warnings.ToList();
-        if (!lifetime.IsCancellationRequested)
+        if (state.Capture is not null)
+        {
+            try
+            {
+                // A concurrent refresh must finish before stopping and reading the final logger report.
+                if (state.Refresh is { } refresh) await refresh.ConfigureAwait(false);
+                var capture = await state.Capture.ConfigureAwait(false);
+                var report = InvestigationRetention.Bound(await capture.StopAsync().ConfigureAwait(false));
+                lock (gate) state.Value = state.Value with { Investigation = report };
+            }
+            catch (Exception ex)
+            {
+                AddWarning(warnings, "Investigation completion " + TelemetryData.Status(ex) + ": " + TelemetryData.SafeReason(ex));
+                lock (gate) state.Value = state.Value with { Status = "failed", Investigation = state.Value.Investigation ??
+                    InvestigationRetention.Bound(new Diagnostics.InvestigationReport { Collectors = [new("Investigation", TelemetryData.Status(ex), TelemetryData.SafeReason(ex))],
+                        Limitations = ["Collector unavailable. No successful frame or device coverage is implied."] }) };
+            }
+        }
+        else if (!lifetime.IsCancellationRequested)
         {
             var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(3));
@@ -303,7 +382,12 @@ public sealed class DiagnosticSessionService : IDiagnosticSessions
                 state.Value = state.Value with { Status = "failed", Warnings = warnings.ToArray() };
                 // Keep the last valid primary/backup. A later start recovers it as interrupted.
             }
-            finally { try { store.Release(state.Value.Id); } catch (Exception ex) { AddWarning(warnings, "Storage lease release " + TelemetryData.Status(ex) + ": " + TelemetryData.SafeReason(ex)); state.Value = state.Value with { Warnings = warnings.ToArray() }; } }
+            finally
+            {
+                // Release the logger's full buffers when finalization is done. Only bounded report data survives.
+                state.Capture = null; state.Refresh = null;
+                try { store.Release(state.Value.Id); } catch (Exception ex) { AddWarning(warnings, "Storage lease release " + TelemetryData.Status(ex) + ": " + TelemetryData.SafeReason(ex)); state.Value = state.Value with { Warnings = warnings.ToArray() }; }
+            }
         }
     }
 

@@ -12,6 +12,7 @@ internal static class ObsWebSocketTests
     {
         await AuthRequestsAndOutputParsing();
         await ReplayStatusAndControls();
+        await UnavailableReplayKeepsRecordingConnection();
         await ReplaySaveWaitsForNewEventAndSerializes();
         await ReplaySaveWithoutEventTimesOut();
         await ReplaySaveDisconnectAndRequestError();
@@ -40,6 +41,45 @@ internal static class ObsWebSocketTests
         Assert((await client.GetReplayBufferStatusAsync()).Active, "replay buffer active state was not parsed");
         await client.StartReplayBufferAsync();
         await client.StopReplayBufferAsync();
+        await server.Completion;
+    }
+
+    private static async Task UnavailableReplayKeepsRecordingConnection()
+    {
+        (string Type, int Code, string? Comment, object Data)[] replies =
+        [
+            ("GetReplayBufferStatus", 604, "Replay buffer is not available.", new { }),
+            ("GetRecordStatus", 100, null, new { outputActive = true, outputPaused = false, outputDuration = 1000, outputBytes = 2048 }),
+            ("GetReplayBufferStatus", 100, null, new { outputActive = false }),
+            ("GetReplayBufferStatus", 207, "OBS is not ready.", new { })
+        ];
+        await using var server = new MockObsServer(async socket =>
+        {
+            await HandshakeAsync(socket);
+            foreach (var reply in replies)
+            {
+                using var request = await ReceiveAsync(socket);
+                var data = request.RootElement.GetProperty("d");
+                Assert(data.GetProperty("requestType").GetString() == reply.Type, $"wrong {reply.Type} request type");
+                await SendAsync(socket, JsonSerializer.Serialize(new
+                {
+                    op = 7,
+                    d = new
+                    {
+                        requestType = reply.Type, requestId = data.GetProperty("requestId").GetString(),
+                        requestStatus = new { result = reply.Code == 100, code = reply.Code, comment = reply.Comment },
+                        responseData = reply.Data
+                    }
+                }));
+            }
+        });
+        await using var client = new ObsWebSocketClient(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        await client.ConnectAsync(server.Port);
+        Assert(await client.GetReplayBufferStatusAsync() is { Available: false, Active: false }, "unavailable replay was not represented as an optional output");
+        Assert(client.IsConnected && (await client.GetRecordStatusAsync()).Active, "recording status failed after replay became unavailable");
+        Assert(await client.GetReplayBufferStatusAsync() is { Available: true, Active: false }, "enabled but stopped replay was not distinguished from unavailable replay");
+        try { await client.GetReplayBufferStatusAsync(); throw new Exception("unexpected replay error was hidden"); }
+        catch (ObsWebSocketException ex) { Assert(ex.RequestStatusCode == 207, "unrelated OBS rejection changed"); }
         await server.Completion;
     }
 

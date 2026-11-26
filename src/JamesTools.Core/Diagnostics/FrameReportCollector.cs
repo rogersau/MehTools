@@ -20,10 +20,10 @@ internal sealed class FrameReportCollector : IDisposable
     private bool _complete, _disposed;
     private string _status = "Collecting frame data…";
 
-    public FrameReportCollector(string presentMonPath, string gamePath, Stopwatch elapsed, DiagnosticOptions? options = null, Action<FrameTelemetry>? rawFrame = null)
+    public FrameReportCollector(string presentMonPath, string gamePath, Stopwatch elapsed, DiagnosticOptions? options = null, Action<FrameTelemetry>? rawFrame = null, InvestigationClock? clock = null)
     {
         _elapsed = elapsed;
-        var origin = Stopwatch.GetTimestamp() - (long)(elapsed.Elapsed.TotalSeconds * Stopwatch.Frequency);
+        var origin = clock?.OriginQpc ?? Stopwatch.GetTimestamp() - (long)(elapsed.Elapsed.TotalSeconds * Stopwatch.Frequency);
         _data = new FrameCaptureData(options, origin, rawFrame, pid =>
         {
             try
@@ -48,6 +48,7 @@ internal sealed class FrameReportCollector : IDisposable
         _session = "MehToolsRpt-" + Guid.NewGuid().ToString("N");
         var start = new ProcessStartInfo { FileName = presentMonPath, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var arg in new[] { "--process_name", Path.GetFileName(gamePath), "--output_stdout", "--session_name", _session, "--no_track_input", "--qpc_time" }) start.ArgumentList.Add(arg);
+        var timedCaptureSupported = false;
         try
         {
             using var help = Process.Start(new ProcessStartInfo { FileName = presentMonPath, Arguments = "--help", UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true });
@@ -58,6 +59,7 @@ internal sealed class FrameReportCollector : IDisposable
                 if (help.WaitForExit(1500))
                 {
                     var flags = output.GetAwaiter().GetResult() + errors.GetAwaiter().GetResult();
+                    timedCaptureSupported = flags.Contains("--timed", StringComparison.Ordinal) && flags.Contains("--terminate_after_timed", StringComparison.Ordinal);
                     if (flags.Contains("--track_frame_type", StringComparison.Ordinal)) start.ArgumentList.Add("--track_frame_type");
                     if (!flags.Contains("--qpc_time", StringComparison.Ordinal)) start.ArgumentList.Remove("--qpc_time");
                 }
@@ -65,6 +67,14 @@ internal sealed class FrameReportCollector : IDisposable
             }
         }
         catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException) { }
+        if (options?.InvestigateStutter == true)
+        {
+            // The child enforces its own deadline even if Meh Tools crashes before StopAsync can run.
+            if (!timedCaptureSupported) throw new NotSupportedException("Investigation frame capture requires PresentMon timed termination support.");
+            start.ArgumentList.Add("--timed");
+            start.ArgumentList.Add(Math.Max(1, (int)Math.Ceiling(options.InvestigationDurationSeconds - elapsed.Elapsed.TotalSeconds)).ToString(CultureInfo.InvariantCulture));
+            start.ArgumentList.Add("--terminate_after_timed");
+        }
         _process = Process.Start(start) ?? throw new InvalidOperationException("PresentMon could not be started.");
         _reader = Task.Run(ReadAsync);
     }

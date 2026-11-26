@@ -9,7 +9,7 @@ namespace JamesTools.Mcp;
 public sealed record SafeError(int SchemaVersion, DateTimeOffset TimestampUtc, string Status, string Reason);
 
 /// <summary>Shares the real backend and capture store. Owns no diagnostic implementation.</summary>
-public sealed class DiagnosticAccess(IDiagnosticBackend backend, IDiagnosticSessions sessions)
+public sealed partial class DiagnosticAccess(IDiagnosticBackend backend, IDiagnosticSessions sessions)
 {
     private readonly SemaphoreSlim _operations = new(4, 4);
     private HealthReport? _latestReport;
@@ -90,6 +90,7 @@ public sealed class DiagnosticAccess(IDiagnosticBackend backend, IDiagnosticSess
         return items.OrderByDescending(s => s.StartedUtc).Take(100).Select(s => s with
         {
             Samples = [], NotableEvents = [], Findings = [],
+            Investigation = null,
             Warnings = s.Warnings.Concat(["Summary only; use get_diagnostic_session for captured details. List limited to latest 100 sessions."]).ToArray()
         }).ToArray();
     }, ct);

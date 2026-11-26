@@ -84,6 +84,14 @@ All successful tool outputs are structured JSON with an advertised output schema
 | `start_diagnostic_session` | required integer `duration` (seconds), `profile`; optional integer `samplingIntervalSeconds` | `DiagnosticSession`: ID and initial capture state; returns promptly |
 | `get_diagnostic_session` | required `id`: nonempty UUID | `DiagnosticSession`: bounded snapshots and aggregate statistics |
 | `stop_diagnostic_session` | required `id`: nonempty UUID | `DiagnosticSession`: final capture state; repeated stop is safe |
+| `start_stutter_investigation` | required `duration` (1–300 seconds); optional `processId`, `deepInvestigation` (false), `deepUsbTracing` (false), `stutterThresholdMs` (33.333, range 1–10000) | Existing `DiagnosticSession` with explicit investigation options; capture starts in background |
+| `stop_stutter_investigation` | required `id` | Same idempotent session stop; `stop_diagnostic_session` also stops investigations |
+| `list_investigation_devices` | required `id`; optional `offset` (0), `limit` (50) | Paged captured devices, redacted identities and parent/hub/controller topology |
+| `get_recent_device_events` | required `id`; optional `offset`, `limit`, exact `source` (≤128 characters), `category` (≤64) | Paged timestamp-ordered retained device/deep events with coverage and omissions |
+| `get_performance_spikes` | required `id`; optional `offset`, `limit` | Paged slow frame intervals with original timing and stream identity |
+| `get_stutter_correlations` | required `id`; optional `offset`, `limit` | Paged event/stall association summaries, background chance and confidence limitations |
+| `get_investigation_report` | required `id` | Structured metrics, coverage, periodicity, collectors and correlation summaries; detail arrays use the paged tools |
+| `compare_investigation_sessions` | required `beforeId`, `afterId`; optional `changeDescription` (≤256 characters) | Finished-session metric/rate deltas, group/correlation changes and comparison limitations |
 
 Event severity is `critical`, `error`, `warning`, `information`, or `verbose`. Event IDs are integers from 0 to 65535, with at most 32 per query. Event queries default to the last 24 hours. Both event/history ranges are limited to seven days; `fromUtc` must not exceed `toUtc`. Event limit is 1–200; history limit is 1–500. History accepts at most 32 exact metric names. Metric/provider/category arguments are validated, not executable expressions or queries. Game requests accept a discovered name (including punctuation) or the exact root of a discovered/configured installation. The backend rejects traversal, device/network paths, alternate data streams, reparse points and uncatalogued roots; there is no arbitrary scan-root access.
 
@@ -98,6 +106,7 @@ Diagnostic categories are `cpu`, `gpu`, `memory`, `storage`, `network`, `thermal
 | `meh://capabilities` | `DiagnosticCapabilities`: categories, profiles, limitations |
 | `meh://report/latest` | Last health report generated in this host; unavailable before the first report |
 | `meh://sessions` | At most 100 recent session summaries; use the session tool for full samples |
+| `meh://investigations` | Retained investigation session summaries, including explicit PID/deep options; detail is read by session ID |
 
 Resources use `application/json` and the same backend, session store and limits as tools. URIs do not provide a file browser. The latest-report cache is per host; different stdio client processes can have different latest reports.
 
@@ -123,7 +132,8 @@ The v1 output field reference below uses `?` for a nullable value and `[]` for a
 | `EventLogResult` | `V`, `T`, `status`, `events: DiagnosticEvent[]`, `truncated` (boolean), `warnings: string[]` |
 | `DiagnosticCapabilities` | `V`, `categories: string[]`, `profiles: string[]`, `limitations: string[]` |
 | `MetricStatistics` | `name`, `unit`, `count` (integer), `minimum?`, `maximum?`, `average?` (numbers) |
-| `DiagnosticSession` | `V`, `id` (UUID), `profile`, `startedUtc`, `endedUtc?`, `status`, `durationSeconds`, `samplingIntervalSeconds` (integers), `samples: MetricsSnapshot[]`, `statistics: MetricStatistics[]`, `notableEvents: DiagnosticEvent[]`, `findings: Finding[]`, `warnings: string[]` |
+| `DiagnosticSession` | `V`, `id` (UUID), `profile`, `startedUtc`, `endedUtc?`, `status`, `durationSeconds`, `samplingIntervalSeconds` (integers), `samples: MetricsSnapshot[]`, `statistics: MetricStatistics[]`, `notableEvents: DiagnosticEvent[]`, `findings: Finding[]`, `warnings: string[]`, additive `investigation?`, `investigationOptions?` |
+| `InvestigationPage<T>` | `V`, `sessionId`, `status`, `offset`, `retainedCount`, `nextOffset?`, `items: T[]`, `coverage`, `collectors`, `limitations: string[]` |
 | `HistoricalMetrics` | `V`, `samples: MetricsSnapshot[]`, `statistics: MetricStatistics[]`, `previousStatistics: MetricStatistics[]`, `truncated` (boolean), `warnings: string[]` |
 
 Session lifecycle statuses are `recording`, `completed`, `stopped`, `failed`, and `interrupted`. These describe capture lifecycle separately from each sensor's availability status. Some backend operations can report `partial` when only part of a source was readable. Completed-session aggregates cover accepted samples over the capture; history aggregates cover matching retained history, not samples that retention has already discarded. Legacy app performance-history records can contribute when the session service receives the shared app-data root.
@@ -146,6 +156,20 @@ Example initial investigation:
 6. Request `get_event_logs` with `{"severity":"error","limit":20}` around that UTC interval, then call `get_health_report`.
 
 For an installation question, call `inspect_game` with `{"game":"<detected game name>"}` and examine component evidence/runtime status. An exact catalog root can disambiguate duplicate names. If the game is undiscovered, configure it through the app's normal library/settings flow; the MCP service does not accept an arbitrary scan root.
+
+### Stutter investigations
+
+Call `start_stutter_investigation` with `{"duration":60,"processId":1234}` for any accessible running application, including applications outside the game library. The PID is validated against Windows' accessible process image path before acceptance and again before capture startup. The executable is never launched. The shared logger selects processes with that validated image path, so multiple running instances can contribute frames. Omit `processId` for system hardware/device capture without application frame timing. Inaccessible, exited and network-path targets are rejected. No executable, PresentMon, command, import or output path is accepted by these tools. PresentMon uses the existing bundled locator, including the installed MCP host's sibling tool location.
+
+Set `deepInvestigation:true` only when explicitly requesting deeper local ETW evidence; `deepUsbTracing:true` additionally requires deep mode. Normal duration is 1–300 seconds; Deep duration is 30–300 seconds, with early stopping available. Neither option requests elevation. Missing privileges/providers/PresentMon appear in collector availability, loss and limitations; unavailable evidence does not identify a healthy or faulty device. Network probes are disabled. MCP sets `DiagnosticOptions.WriteRawExports=false`: **no raw ETL or raw diagnostic export is retained**. Only bounded evidence in the normal session store survives.
+
+Use the returned UUID with `get_diagnostic_session` during capture or `stop_diagnostic_session` / `stop_stutter_investigation` to finish early. Start acceptance is durable before collectors start. Initial report reads may be unavailable until the first snapshot; live analysis uses the latest 1000 frames/events and is explicitly provisional. Cancellation of a request after acceptance does not cancel the recording. One investigation per host is allowed, sharing the store's existing four-recording limit with ordinary sessions. Duration expiry, stop and host disposal all finalize the same recording once.
+
+After stop, call `get_investigation_report` for summary statistics and use the device/event/spike/correlation tools for detail. Their `offset` is 0–30000 and `limit` is 1–200 (default 50). Follow `nextOffset` until null: the byte budget may return fewer items than requested. `retainedCount` describes the filtered retained detail, not the complete recording. Live cursors can shift; stop before paging when stable results matter. Correlations preserve aggregate event/stall/chance statistics before detail reduction; match examples are bounded. Coincidence is never causal proof.
+
+Reports use a 220 KiB budget inside the unchanged 300 KiB session limit and 32 MiB store budget. At most 512 events, 256 spikes, 64 clusters, 128 devices, 16 hardware samples, 256 correlations (four match examples each), 256 event-periodicity groups and 32 collector statuses enter the report budget; detail can be reduced further to fit. Coverage counters and retained/input counts in limitations describe omissions. Summary metrics survive reduction; hardware/device details and event pages are not complete raw captures. Event/device strings pass through the portable report sanitizer. Session summaries omit report detail. Reports inherit the same twelve-session/seven-day retention, backup recovery and interrupted-owner semantics as ordinary sessions.
+
+Compare two finished UUIDs with `compare_investigation_sessions`, describing a deliberate change in `changeDescription`. The shared comparison checks thresholds, warm-up, exposure and declared conditions. Event rate comparisons use retained group summaries before MCP event-detail reduction; missing groups remain unobserved. Comparison detail is bounded to 220 KiB and its limitations disclose any possible omission. Workload and scene controls are not inferred by MCP, and a before/after difference does not establish causation.
 
 ## Limits and troubleshooting
 

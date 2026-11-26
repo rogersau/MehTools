@@ -7,7 +7,10 @@ using System.Text.Json;
 namespace JamesTools.Core.Recording;
 
 public sealed record ObsRecordStatus(bool Active, bool Paused, long DurationMilliseconds, long Bytes);
-public sealed record ObsReplayBufferStatus(bool Active);
+public sealed record ObsReplayBufferStatus(bool Active)
+{
+    public bool Available { get; init; } = true;
+}
 public sealed record ObsReplayBufferSavedEventArgs(string OutputPath);
 public sealed record ObsRecordFileChangedEventArgs(string OutputPath);
 
@@ -16,11 +19,15 @@ public sealed record ObsRecordStateChangedEventArgs(bool Active, bool Paused, st
 public sealed class ObsWebSocketException : IOException
 {
     public ObsWebSocketException(string message) : base(message) { }
+    internal int? RequestStatusCode { get; init; }
 }
 
 /// <summary>Small OBS WebSocket 5 JSON client scoped to the local OBS server.</summary>
 public sealed class ObsWebSocketClient : IAsyncDisposable
 {
+    private const int InvalidResourceState = 604;
+    private const int AuthenticationFailed = 4009;
+    private const int SessionInvalidated = 4011;
     private readonly TimeSpan _connectTimeout;
     private readonly TimeSpan _requestTimeout;
     private readonly ClientWebSocket _socket = new();
@@ -31,6 +38,7 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> _pending = new();
     private readonly CancellationTokenSource _lifetime = new();
     private Task? _receiver;
+    private ObsWebSocketException? _terminalError;
     private int _requestId;
     private int _disposed;
     private bool _identified;
@@ -49,6 +57,7 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
     public event EventHandler<ObsReplayBufferSavedEventArgs>? ReplayBufferSaved;
     public bool IsConnected => Volatile.Read(ref _disposed) == 0 && _identified &&
         !_lifetime.IsCancellationRequested && _socket.State == WebSocketState.Open;
+    public bool UsesAuthentication { get; private set; }
 
     public async Task ConnectAsync(int port, string? password = null, CancellationToken cancellationToken = default)
     {
@@ -66,7 +75,8 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
                 throw new ObsWebSocketException("OBS sent an unexpected message before Hello.");
             var helloData = hello.RootElement.GetProperty("d");
             var identify = new Dictionary<string, object?> { ["rpcVersion"] = 1 };
-            if (helloData.TryGetProperty("authentication", out var auth))
+            bool authenticationRequired = helloData.TryGetProperty("authentication", out var auth);
+            if (authenticationRequired)
             {
                 if (string.IsNullOrEmpty(password))
                     throw new ObsWebSocketException("OBS requires a WebSocket password. Enter it and connect again.");
@@ -86,6 +96,7 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
                 }
                 if (op == 7) throw ParseRequestError(identified.RootElement);
             }
+            UsesAuthentication = authenticationRequired;
             _identified = true;
             _receiver = ReceiveLoopAsync(_lifetime.Token);
         }
@@ -123,8 +134,16 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
 
     public async Task<ObsReplayBufferStatus> GetReplayBufferStatusAsync(CancellationToken cancellationToken = default)
     {
-        var response = await RequestAsync("GetReplayBufferStatus", null, cancellationToken).ConfigureAwait(false);
-        return new ObsReplayBufferStatus(response.GetProperty("outputActive").GetBoolean());
+        try
+        {
+            var response = await RequestAsync("GetReplayBufferStatus", null, cancellationToken).ConfigureAwait(false);
+            return new ObsReplayBufferStatus(response.GetProperty("outputActive").GetBoolean());
+        }
+        catch (ObsWebSocketException ex) when (ex.RequestStatusCode == InvalidResourceState)
+        {
+            // OBS uses this status when the replay buffer output is unavailable.
+            return new ObsReplayBufferStatus(false) { Available = false };
+        }
     }
 
     public Task StartReplayBufferAsync(CancellationToken cancellationToken = default) => RequestAsync("StartReplayBuffer", null, cancellationToken);
@@ -149,7 +168,7 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
             try { return await saved.Task.WaitAsync(timeout.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                if (_lifetime.IsCancellationRequested) throw new IOException("OBS disconnected before confirming the replay clip save.");
+                if (_lifetime.IsCancellationRequested) throw await DisconnectedErrorAsync("OBS disconnected before confirming the replay clip save.").ConfigureAwait(false);
                 throw new TimeoutException($"OBS did not confirm the replay clip save within {_saveEventTimeout.TotalSeconds:0.##} seconds.");
             }
         }
@@ -171,7 +190,7 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         Action? beforeSend = null)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        if (!IsConnected) throw new IOException("OBS WebSocket is disconnected.");
+        if (!IsConnected) throw await DisconnectedErrorAsync("OBS WebSocket is disconnected.").ConfigureAwait(false);
         await _requestLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -189,8 +208,12 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 if (_lifetime.IsCancellationRequested)
-                    throw new IOException("OBS disconnected while handling the request.");
+                    throw await DisconnectedErrorAsync("OBS disconnected while handling the request.").ConfigureAwait(false);
                 throw new TimeoutException($"OBS did not answer {requestType} within {_requestTimeout.TotalSeconds:0.##} seconds.");
+            }
+            catch (WebSocketException) when (!IsConnected)
+            {
+                throw await DisconnectedErrorAsync("OBS disconnected while sending the request.").ConfigureAwait(false);
             }
             finally { _pending.TryRemove(id, out _); }
         }
@@ -227,9 +250,17 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            _terminalError = ex as ObsWebSocketException;
             FailPending(ex is IOException ? ex : new IOException("OBS WebSocket connection failed.", ex));
             _lifetime.Cancel();
         }
+    }
+
+    private async Task<IOException> DisconnectedErrorAsync(string message)
+    {
+        // A peer close can change the socket state before the receiver records its reason.
+        if (_receiver is { } receiver) await receiver.ConfigureAwait(false);
+        return _terminalError ?? new IOException(message);
     }
 
     private void HandleEvent(JsonElement root)
@@ -275,7 +306,14 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         {
             result = await socket.ReceiveAsync(frame, cancellationToken).ConfigureAwait(false);
             if (result.MessageType == WebSocketMessageType.Close)
-                throw new IOException("OBS closed the WebSocket connection.");
+            {
+                throw (int?)result.CloseStatus switch
+                {
+                    AuthenticationFailed => new ObsWebSocketException("OBS rejected the WebSocket password. Enter it and connect again."),
+                    SessionInvalidated => new ObsWebSocketException("OBS ended this WebSocket session. Select Connect to OBS to start a new one."),
+                    _ => new IOException("OBS closed the WebSocket connection.")
+                };
+            }
             if (result.MessageType != WebSocketMessageType.Text)
                 throw new ObsWebSocketException("OBS sent an unsupported non-text WebSocket frame.");
             if (buffer.Length + result.Count > 1024 * 1024)
@@ -299,7 +337,10 @@ public sealed class ObsWebSocketClient : IAsyncDisposable
         var comment = GetNullableString(status, "comment");
         return new ObsWebSocketException(string.IsNullOrWhiteSpace(comment)
             ? $"OBS rejected {GetString(data, "requestType")} (error {code})."
-            : $"OBS rejected {GetString(data, "requestType")}: {comment} (error {code}).");
+            : $"OBS rejected {GetString(data, "requestType")}: {comment} (error {code}).")
+        {
+            RequestStatusCode = codeValue.ValueKind == JsonValueKind.Number && codeValue.TryGetInt32(out var numericCode) ? numericCode : null
+        };
     }
 
     private void FailPending(Exception exception)

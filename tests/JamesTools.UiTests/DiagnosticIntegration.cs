@@ -24,10 +24,14 @@ internal static class DiagnosticIntegration
         {
             window.Show();
             moving.BeginAnimation(Canvas.LeftProperty, new DoubleAnimation(0, 200, TimeSpan.FromSeconds(1)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
-            logger = await Task.Run(() => PerformanceLogger.StartAsync(executable, presentMon));
+            logger = await Task.Run(() => PerformanceLogger.StartAsync(executable, presentMon, null, new NetworkProbeOptions(false, []),
+                new DiagnosticOptions { InvestigateStutter = true, InvestigationDurationSeconds = 15 }));
             raw = logger.RawDataDirectory;
             await Task.Delay(5500);
             var report = await logger.StopAsync();
+            var investigation = logger.CompletedInvestigation ?? throw new Exception("Investigation did not complete with the existing performance logger");
+            if (InvestigationExports.Parse(report).FormatVersion != 1) throw new Exception("Integrated investigation report failed to reopen");
+            Console.WriteLine($"INVESTIGATION real Windows: devices={investigation.Devices.Count}, events={investigation.Events.Count}, frameCoverage={investigation.Coverage.FrameCoverageFraction:P1}");
             var root = DiagnosticComparison.MachineSummary(report) ?? throw new Exception("Missing integration summary");
             var frames = DiagnosticComparison.Number(root, "frameCount");
             if (frames is > 0)

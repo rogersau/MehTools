@@ -28,7 +28,8 @@ public interface IDiagnosticBackend : IDisposable
 }
 
 public sealed record MetricStatistics(string Name, string Unit, int Count, double? Minimum, double? Maximum, double? Average);
-public sealed record DiagnosticSession(int SchemaVersion, Guid Id, string Profile, DateTimeOffset StartedUtc, DateTimeOffset? EndedUtc, string Status, int DurationSeconds, int SamplingIntervalSeconds, IReadOnlyList<MetricsSnapshot> Samples, IReadOnlyList<MetricStatistics> Statistics, IReadOnlyList<DiagnosticEvent> NotableEvents, IReadOnlyList<Finding> Findings, IReadOnlyList<string> Warnings);
+public sealed record DiagnosticSession(int SchemaVersion, Guid Id, string Profile, DateTimeOffset StartedUtc, DateTimeOffset? EndedUtc, string Status, int DurationSeconds, int SamplingIntervalSeconds, IReadOnlyList<MetricsSnapshot> Samples, IReadOnlyList<MetricStatistics> Statistics, IReadOnlyList<DiagnosticEvent> NotableEvents, IReadOnlyList<Finding> Findings, IReadOnlyList<string> Warnings,
+    Diagnostics.InvestigationReport? Investigation = null, StutterInvestigationOptions? InvestigationOptions = null);
 public sealed record HistoryQuery(DateTimeOffset? FromUtc = null, DateTimeOffset? ToUtc = null, string[]? Metrics = null, int Limit = 100, bool ComparePrevious = false);
 public sealed record HistoricalMetrics(int SchemaVersion, IReadOnlyList<MetricsSnapshot> Samples, IReadOnlyList<MetricStatistics> Statistics, IReadOnlyList<MetricStatistics> PreviousStatistics, bool Truncated, IReadOnlyList<string> Warnings);
 

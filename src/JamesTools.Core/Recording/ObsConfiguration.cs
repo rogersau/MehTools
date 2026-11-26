@@ -39,7 +39,7 @@ internal static class ObsConfiguration
             if (!string.IsNullOrEmpty(recordingType) && !string.Equals(recordingType, "Standard", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("This OBS profile uses a custom recording output. Choose standard recording in OBS before using this folder setting.");
         }
-        if (captureMode is CaptureMode.Replay or CaptureMode.Both)
+        if (captureMode is CaptureMode.Replay or CaptureMode.Both or CaptureMode.WardogsHighlights)
         {
             if (replayBufferSeconds is < 15 or > 600)
                 throw new InvalidDataException("Replay buffer length must be between 15 and 600 seconds.");

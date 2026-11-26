@@ -7,11 +7,12 @@ namespace JamesTools.Core.Diagnostics;
 internal sealed class DiagnosticRawWriter : IDisposable
 {
     private readonly object _gate = new();
-    private StreamWriter? _frames, _hardware, _faults;
+    private StreamWriter? _frames, _hardware, _faults, _investigationEvents;
     public string? DirectoryPath { get; private set; }
     public string? Error { get; private set; }
-    public DiagnosticRawWriter()
+    public DiagnosticRawWriter(bool enabled = true)
     {
+        if (!enabled) return;
         try
         {
             DirectoryPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JamesTools", "Diagnostics", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8]);
@@ -25,6 +26,28 @@ internal sealed class DiagnosticRawWriter : IDisposable
     public void Frame(FrameTelemetry frame) => Write(() => _frames?.WriteLine(frame.ToCsv()));
     public void Fault(HardFaultObservation fault) => Write(() => _faults?.WriteLine(JsonSerializer.Serialize(fault)));
     public void Hardware(DiagnosticHardwareSample sample) => Write(() => _hardware?.WriteLine(JsonSerializer.Serialize(sample)));
+    public void InvestigationEvent(InvestigationEvent evidence) => Write(() =>
+    {
+        if (DirectoryPath is null || Error is not null) return;
+        _investigationEvents ??= Open("investigation-events.jsonl");
+        _investigationEvents.WriteLine(JsonSerializer.Serialize(evidence));
+    });
+    public void InvestigationState(string state, InvestigationClock clock, int duration) => Write(() =>
+    {
+        if (DirectoryPath is null) return;
+        File.WriteAllText(Path.Combine(DirectoryPath, "investigation-state.json"), JsonSerializer.Serialize(new
+        {
+            State = state, clock.OriginUtc, clock.OriginQpc, clock.Frequency, DurationSeconds = duration,
+            ProcessId = Environment.ProcessId,
+            Recovery = "A recording state after the owner exits indicates an interrupted capture. Raw files may be partial; no successful completion is implied."
+        }));
+    });
+    public void InvestigationSummary(InvestigationReport report) => Write(() =>
+    {
+        if (DirectoryPath is null) return;
+        File.WriteAllText(Path.Combine(DirectoryPath, "investigation.json"), InvestigationReportWriter.ToJson(report));
+        File.WriteAllText(Path.Combine(DirectoryPath, "investigation-events.csv"), InvestigationReportWriter.EventsCsv(report));
+    });
     public void Finish(string report, string summaryJson, object markers)
     {
         Dispose();
@@ -38,8 +61,8 @@ internal sealed class DiagnosticRawWriter : IDisposable
     {
         lock (_gate)
         {
-            var writers = new[] { _frames, _hardware, _faults };
-            _frames = null; _hardware = null; _faults = null;
+            var writers = new[] { _frames, _hardware, _faults, _investigationEvents };
+            _frames = null; _hardware = null; _faults = null; _investigationEvents = null;
             foreach (var writer in writers) try { writer?.Dispose(); } catch (IOException ex) { Error = ex.GetType().Name; }
         }
     }

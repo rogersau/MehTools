@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\JamesTools.Core\JamesTools.Core.csproj" />
-    <ProjectReference Include="..\JamesTools.OcrWorker\JamesTools.OcrWorker.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\JamesTools.Mcp\JamesTools.Mcp.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
@@ -23,6 +22,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="..\..\third_party\native-tools\win-x64\ffmpeg\*.exe">
+      <Link>tools\ffmpeg\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\third_party\native-tools\win-x64\licenses\AOM-*.txt;..\..\third_party\native-tools\win-x64\licenses\FFmpeg-*.txt;..\..\third_party\native-tools\win-x64\licenses\COPYING.MinGW-w64-runtime.txt;..\..\third_party\native-tools\win-x64\licenses\zlib.txt;..\..\third_party\native-tools\win-x64\licenses\manifest.json;..\..\third_party\native-tools\win-x64\licenses\README.md">
+      <Link>tools\licenses\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Include="..\..\third_party\PresentMon\PresentMon.exe">
       <Link>tools\PresentMon\PresentMon.exe</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -35,13 +44,10 @@
     </Content>
   </ItemGroup>
 
-  <Target Name="BuildLiveWorker" AfterTargets="Build">
-    <ItemGroup><LiveWorkerFiles Include="..\JamesTools.OcrWorker\bin\$(Configuration)\net10.0-windows\$(RuntimeIdentifier)\*" /></ItemGroup>
-    <Copy SourceFiles="@(LiveWorkerFiles)" DestinationFolder="$(TargetDir)tools\ocr" />
+  <Target Name="RequireBundledNativeTools" BeforeTargets="PrepareForPublish">
+    <Error Condition="!Exists('..\..\third_party\native-tools\win-x64\ffmpeg\ffmpeg.exe') Or !Exists('..\..\third_party\native-tools\win-x64\ffmpeg\ffprobe.exe') Or !Exists('..\..\third_party\native-tools\win-x64\licenses\manifest.json') Or !Exists('..\..\artifacts\MehTools-native-sources.zip')" Text="Bundled tools or source materials are missing. Run pwsh -File scripts/Prepare-NativeTools.ps1 before publishing." />
   </Target>
-  <Target Name="PublishLiveWorker" AfterTargets="Publish">
-    <MSBuild Projects="..\JamesTools.OcrWorker\JamesTools.OcrWorker.csproj" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)tools\ocr\" />
-  </Target>
+
   <Target Name="BuildMcpServer" AfterTargets="Build">
     <ItemGroup><McpServerFiles Include="..\JamesTools.Mcp\bin\$(Configuration)\net10.0-windows\$(RuntimeIdentifier)\**\*" /></ItemGroup>
     <Copy SourceFiles="@(McpServerFiles)" DestinationFiles="@(McpServerFiles->'$(TargetDir)tools\mcp\%(RecursiveDir)%(Filename)%(Extension)')" />

@@ -2,12 +2,12 @@
 
 ## Using it
 
-1. Open **Performance**, choose the actual running game, and expand **Diagnostic sampling and test conditions**. The fields are optional. Enter the scene, resolution, rendering settings, caps/sync/refresh, game version, ambient conditions and background workload you know. Settings are self-reported, never inferred. Save settings to retain recent values.
+1. Open **Performance**, choose the running game if you have several configured, and expand **Capture settings**. The fields are optional. Enter the scene, resolution, rendering settings, caps/sync/refresh, game version, ambient conditions and background workload you know. Settings are self-reported, never inferred. Save settings to retain recent values.
 2. Leave normal sampling enabled initially: system/process counters about every two seconds, GPU about every six seconds. Enable **Faster GPU and system sampling** for roughly one-second sampling when investigating a hitch. Actual collection windows are saved.
 3. Choose a stutter threshold (default strictly greater than 33.333 ms), target FPS (default 60), and optional warm-up exclusion. Counts above 33.333, 50 and 100 ms are also preserved. Warm-up excludes **frame performance summaries**, while raw frames and hardware remain intact. Hardware averages include warm-up.
 4. Start a log and play. Use **Add marker** with a note, or the existing configurable **Stutter marker** shortcut (default Ctrl+Alt+F9). This uses RegisterHotKey, with no keyboard hook or injection. A marker timestamps when Meh Tools receives it; it does not identify the exact stalled frame.
 5. Stop and save. **View report timeline** now includes **Worst stutters**. Select one of the ten worst qualifying frames to inspect approximately five seconds before and after it. Frame time, CPU Busy and GPU Busy use per-frame timestamps; hardware sample ticks align with a table showing their real sampling windows. The report includes observations, possible causes and confidence/limitations.
-6. Use **Compare…** to choose two reports, or use the existing baseline/retest and history workflows. Keep the scene, route, duration, cap, frame generation, sync and background tasks fixed when testing a change.
+6. Open **Retest and compare** to compare saved reports, choose a baseline, or open performance history. Keep the scene, route, duration, cap, frame generation, sync and background tasks fixed when testing a change.
 
 Normal recording never requests elevation. **Advanced ETW hard faults** is explicitly opt-in and uses existing elevated access only. Without that access it reports Unavailable and all other diagnostics continue. Meh Tools does not install a driver, elevate itself or change a protected setting. It does not collect affected file names, even in advanced mode.
 

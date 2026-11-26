@@ -216,7 +216,7 @@ public sealed class HttpAccessPolicy
 
 internal sealed class RequestPolicy
 {
-    public static IReadOnlySet<string> Resources { get; } = new HashSet<string>(["meh://inventory", "meh://sensors", "meh://capabilities", "meh://report/latest", "meh://sessions"], StringComparer.Ordinal);
+    public static IReadOnlySet<string> Resources { get; } = new HashSet<string>(["meh://inventory", "meh://sensors", "meh://capabilities", "meh://report/latest", "meh://sessions", "meh://investigations"], StringComparer.Ordinal);
     public SemaphoreSlim Dispatch { get; } = new(8, 8);
     private static readonly IReadOnlyDictionary<string, string[]> Arguments = new Dictionary<string, string[]>
     {
@@ -224,7 +224,13 @@ internal sealed class RequestPolicy
         ["get_historical_metrics"] = ["fromUtc", "toUtc", "metrics", "limit", "comparePrevious"],
         ["inspect_game"] = ["game"], ["get_event_logs"] = ["fromUtc", "toUtc", "source", "severity", "eventIds", "category", "limit"],
         ["get_health_report"] = [], ["start_diagnostic_session"] = ["duration", "profile", "samplingIntervalSeconds"],
-        ["get_diagnostic_session"] = ["id"], ["stop_diagnostic_session"] = ["id"]
+        ["get_diagnostic_session"] = ["id"], ["stop_diagnostic_session"] = ["id"],
+        ["start_stutter_investigation"] = ["duration", "processId", "deepInvestigation", "deepUsbTracing", "stutterThresholdMs"],
+        ["stop_stutter_investigation"] = ["id"], ["get_investigation_report"] = ["id"],
+        ["list_investigation_devices"] = ["id", "offset", "limit"],
+        ["get_recent_device_events"] = ["id", "offset", "limit", "source", "category"],
+        ["get_performance_spikes"] = ["id", "offset", "limit"], ["get_stutter_correlations"] = ["id", "offset", "limit"],
+        ["compare_investigation_sessions"] = ["beforeId", "afterId", "changeDescription"]
     };
 
     public static void ValidateArguments(CallToolRequestParams parameters)

@@ -30,6 +30,13 @@ public partial class PerformanceTimelineWindow : Window
         RangeStart.Text = "0";
         RangeEnd.Text = _duration.ToString("F3", CultureInfo.InvariantCulture);
         MarkerList.ItemsSource = report.Markers.Select(m => new MarkerEntry(m, $"{m.OffsetSeconds:F3} s · {m.Note}")).ToArray();
+        if (report.Markers.Count == 0)
+        {
+            MarkersPanel.Visibility = Visibility.Collapsed;
+            Grid.SetColumn(ReportDetails, 0);
+            Grid.SetColumnSpan(ReportDetails, 2);
+            ReportDetails.Margin = new Thickness(0);
+        }
         if (SampleTable is not null)
         {
             SampleTable.Columns.Add(Column("Time (s)", "Time"));
@@ -46,6 +53,7 @@ public partial class PerformanceTimelineWindow : Window
         StutterPanel.Visibility = report.Investigations.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         StutterList.ItemsSource = report.Investigations.Select(e => new StutterEntry(e, $"{e.Frame.OffsetSeconds:F3} s - {e.Frame.FrameMs:F2} ms")).ToArray();
         NetworkTarget.ItemsSource = report.Network?.Targets ?? [];
+        NetworkTarget.Visibility = NetworkTarget.Items.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
         NetworkPanel.Visibility = report.Network is { Enabled: true } ? Visibility.Visible : Visibility.Collapsed;
         NetworkTarget.SelectedIndex = 0;
         _initializing = false;
@@ -128,7 +136,11 @@ public partial class PerformanceTimelineWindow : Window
         _exclusions.Remove(selected); UpdateExclusions(); RefreshAnalysis();
     }
 
-    private void UpdateExclusions() => ExclusionList.ItemsSource = _exclusions.Select(x => x with { }).ToArray();
+    private void UpdateExclusions()
+    {
+        ExclusionList.ItemsSource = _exclusions.Select(x => x with { }).ToArray();
+        ExclusionsPanel.Visibility = _exclusions.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void MarkerList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

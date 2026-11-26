@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using JamesTools.Core.Mcp;
+using JamesTools.Core.Diagnostics;
 using Json.Schema;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
@@ -13,7 +14,9 @@ internal static class EndpointTests
     internal const int MaximumResponseBytes = 1024 * 1024;
     internal static readonly string[] Tools =
     ["get_system_info", "get_live_metrics", "run_diagnostics", "inspect_game", "get_event_logs", "get_health_report",
-     "start_diagnostic_session", "get_diagnostic_session", "stop_diagnostic_session", "get_historical_metrics"];
+     "start_diagnostic_session", "get_diagnostic_session", "stop_diagnostic_session", "get_historical_metrics",
+     "start_stutter_investigation", "stop_stutter_investigation", "list_investigation_devices", "get_recent_device_events",
+     "get_performance_spikes", "get_stutter_correlations", "get_investigation_report", "compare_investigation_sessions"];
 
     internal static async Task RunAsync(McpClient client, bool hardware, CancellationToken ct, Guid? fullSessionId = null)
     {
@@ -24,7 +27,7 @@ internal static class EndpointTests
         await Check.ThrowsAsync<McpException>(() => client.ReadResourceAsync("meh://report/latest", cancellationToken: ct).AsTask());
         var tools = await client.ListToolsAsync(cancellationToken: ct);
         Schemas.Value = tools.ToDictionary(t => t.Name, t => JsonSchema.FromText(t.ProtocolTool.OutputSchema?.GetRawText() ?? throw new InvalidOperationException(t.Name + ": missing output schema")));
-        Check.That(tools.Select(t => t.Name).Order().SequenceEqual(Tools.Order()), "Expected exactly the ten diagnostic tools: " + string.Join(", ", tools.Select(t => t.Name)));
+        Check.That(tools.Select(t => t.Name).Order().SequenceEqual(Tools.Order()), "Expected all diagnostic tools: " + string.Join(", ", tools.Select(t => t.Name)));
         foreach (var tool in tools)
         {
             var schema = tool.ProtocolTool.InputSchema;
@@ -87,7 +90,7 @@ internal static class EndpointTests
         foreach (var sample in history.Samples) VerifyMetrics(sample);
 
         var resources = await client.ListResourcesAsync(cancellationToken: ct);
-        Check.That(resources.Select(r => r.Uri).Order().SequenceEqual(new[] { "meh://inventory", "meh://sensors", "meh://capabilities", "meh://report/latest", "meh://sessions" }.Order()), "Static diagnostics resources do not match the documented contract.");
+        Check.That(resources.Select(r => r.Uri).Order().SequenceEqual(new[] { "meh://inventory", "meh://sensors", "meh://capabilities", "meh://report/latest", "meh://sessions", "meh://investigations" }.Order()), "Static diagnostics resources do not match the documented contract.");
         foreach (var resource in resources)
         {
             var response = await client.ReadResourceAsync(resource.Uri, cancellationToken: ct);
@@ -137,10 +140,39 @@ internal static class EndpointTests
         await ErrorAsync(client, "start_diagnostic_session", new() { ["duration"] = 5, ["profile"] = "unknown" }, ct);
         await ErrorAsync(client, "start_diagnostic_session", new() { ["duration"] = 5, ["profile"] = "general", ["samplingIntervalSeconds"] = 0 }, ct);
         await ErrorAsync(client, "start_diagnostic_session", new() { ["duration"] = 5, ["profile"] = "general", ["samplingIntervalSeconds"] = 31 }, ct);
+        await ErrorAsync(client, "start_stutter_investigation", new() { ["duration"] = 301 }, ct);
+        await ErrorAsync(client, "start_stutter_investigation", new() { ["duration"] = 5, ["deepUsbTracing"] = true }, ct);
+        await ErrorAsync(client, "start_stutter_investigation", new() { ["duration"] = 5, ["executablePath"] = "C:/arbitrary.exe" }, ct);
+        await ErrorAsync(client, "start_stutter_investigation", new() { ["duration"] = 5, ["presentMonPath"] = "C:/arbitrary.exe" }, ct);
+        await ErrorAsync(client, "start_stutter_investigation", new() { ["duration"] = 5, ["outputPath"] = "C:/arbitrary" }, ct);
+        await ErrorAsync(client, "get_recent_device_events", new() { ["id"] = Guid.NewGuid().ToString(), ["limit"] = 201 }, ct);
+        if (!hardware) await InvestigationsAsync(client, ct);
         // An invalid request must leave the connection usable.
         _ = await CallAsync(client, "get_system_info", [], ct);
         var failures = SchemaFailures.Value!.Distinct().Concat(ValidationFailures.Value!).ToArray();
         Check.That(failures.Length == 0, string.Join("; ", failures));
+    }
+
+    static async Task InvestigationsAsync(McpClient client, CancellationToken ct)
+    {
+        var a = Check.Read<DiagnosticSession>(await CallAsync(client, "start_stutter_investigation", new() { ["duration"] = 30,
+            ["processId"] = 4242, ["deepInvestigation"] = true, ["deepUsbTracing"] = true }, ct));
+        // The normal get/stop tools own investigation sessions too. Final stop waits for startup and report persistence.
+        a = Check.Read<DiagnosticSession>(await CallAsync(client, "stop_diagnostic_session", new() { ["id"] = a.Id.ToString() }, ct));
+        var report = Check.Read<InvestigationReport>(await CallAsync(client, "get_investigation_report", new() { ["id"] = a.Id.ToString() }, ct));
+        Check.That(report.Metrics.FrameCount == 3600 && report.Events.Count == 0 && report.Spikes.Count == 0 && report.Correlations.Single().EventCount == 600, "Report summary lost original statistics.");
+        var events = Check.Read<InvestigationPage<InvestigationEvent>>(await CallAsync(client, "get_recent_device_events", new() { ["id"] = a.Id.ToString(), ["limit"] = 2, ["category"] = "USB" }, ct));
+        Check.That(events.Items.Count == 2 && events.NextOffset == 2 && events.Coverage.EventsOmittedByLimit > 0, "Transport paging/omissions failed.");
+        _ = await CallAsync(client, "get_recent_device_events", new() { ["id"] = a.Id.ToString(), ["offset"] = events.NextOffset, ["limit"] = 200 }, ct);
+        _ = await CallAsync(client, "list_investigation_devices", new() { ["id"] = a.Id.ToString() }, ct);
+        _ = await CallAsync(client, "get_performance_spikes", new() { ["id"] = a.Id.ToString(), ["limit"] = 200 }, ct);
+        _ = await CallAsync(client, "get_stutter_correlations", new() { ["id"] = a.Id.ToString() }, ct);
+        var full = Check.Read<DiagnosticSession>(await CallAsync(client, "get_diagnostic_session", new() { ["id"] = a.Id.ToString() }, ct));
+        Check.That(full.Investigation!.Events.Count > 0 && JsonSerializer.SerializeToUtf8Bytes(full).Length <= 300 * 1024, "Bounded full report unavailable.");
+        var b = Check.Read<DiagnosticSession>(await CallAsync(client, "start_stutter_investigation", new() { ["duration"] = 20 }, ct));
+        _ = await CallAsync(client, "stop_stutter_investigation", new() { ["id"] = b.Id.ToString() }, ct);
+        _ = await CallAsync(client, "stop_stutter_investigation", new() { ["id"] = b.Id.ToString() }, ct);
+        _ = await CallAsync(client, "compare_investigation_sessions", new() { ["beforeId"] = a.Id.ToString(), ["afterId"] = b.Id.ToString(), ["changeDescription"] = "One controlled local change" }, ct);
     }
 
     internal static void VerifyMetrics(MetricsSnapshot snapshot)

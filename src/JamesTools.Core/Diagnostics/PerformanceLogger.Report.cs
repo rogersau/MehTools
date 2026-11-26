@@ -25,6 +25,7 @@ public sealed partial class PerformanceLogger
         if (_vramTotal is { } vram) text.AppendLine($"- GPU memory: {F(vram, "F0")} MiB");
         text.AppendLine($"- Power plan at start / end: {_powerPlanAtStart} / {ReadPowerPlan()}");
         text.AppendLine($"- Selected executable: {(_executablePath is null ? "None (system measurements only)." : Path.GetFileName(_executablePath))}");
+        if (_investigationReport is not null) text.AppendLine().AppendLine(InvestigationReportWriter.ToText(_investigationReport));
 
         text.AppendLine().AppendLine("## Player context (self-reported)");
         lock (_gate)
@@ -140,7 +141,7 @@ public sealed partial class PerformanceLogger
             pacing = diagnostics?.Pacing, frameMetrics = diagnostics?.Metrics,
             presentMonColumns = diagnostics?.PresentMonColumns, presentModes = diagnostics?.PresentModes, frameTypesAllStreams = diagnostics?.FrameTypes, frameTimeSources = diagnostics?.FrameTimeSources, conditions = _options.Conditions,
             warmupSeconds = _options.WarmupSeconds, stutterThresholdMs = _options.StutterThresholdMs,
-            metrics = ExtendedMetrics(), investigations,
+            metrics = ExtendedMetrics(), investigations, stutterInvestigation = _investigationReport,
             markers = _markers.Select(m => new ReportMarker(m.Offset.TotalSeconds, m.Note)).ToArray(),
             hardware = _hardware.Select(h => h with { Values = h.Values.Where(v => !v.Key.StartsWith("cpuFrequencyMHz:") && !v.Key.StartsWith("cpuUtilizationPercent:")).ToDictionary(v => v.Key, v => v.Value) }).ToArray(), hardFaultStatus = _hardFaults.Status,
             processHardFaultCount = _hardFaults.Started && _gameMemory.Count > 0 ? (long?)_hardFaults.SelectedFaultCount : null,
@@ -223,9 +224,10 @@ public sealed partial class PerformanceLogger
         foreach (var property in typeof(RecordingConditions).GetProperties())
             text.AppendLine($"- {property.Name}: {(property.GetValue(_options.Conditions) is string value && !string.IsNullOrWhiteSpace(value) ? value.Replace("\r", " ").Replace("\n", " ") : "Not provided")}");
         text.AppendLine().AppendLine("## Data quality and controlled follow-up tests");
-        text.AppendLine($"- Collector wall time average / maximum: {F(_samples > 0 ? _collectionTotalMs / _samples : null)} / {_collectionMaxMs:F2} ms per sample; this excludes PresentMon/ETW consumer work and raw frame writes. Compare game frame pacing with monitoring disabled to measure total observer effect. Raw export status: {_raw.Error ?? "Available locally"}.");
+        text.AppendLine($"- Collector wall time average / maximum: {F(_samples > 0 ? _collectionTotalMs / _samples : null)} / {_collectionMaxMs:F2} ms per sample; this excludes PresentMon/ETW consumer work and raw frame writes. Compare game frame pacing with monitoring disabled to measure total observer effect. Raw export status: {_raw.Error ?? (_options.WriteRawExports ? "Available locally" : "Disabled for this session")}.");
         text.AppendLine("- Repeat the same scene, route, duration and background workload. Compare render scale to test GPU rendering sensitivity; compare a repeated warm route with a cold route for streaming; check explicit ETW faults when access is available. Keep FPS cap, VSync, VRR and frame generation fixed. A lower GPU temperature does not prove higher FPS or prior throttling.");
-        text.AppendLine("- Each metric's source, unit, scope, availability, target interval and reading coverage are included in machine-summary metrics; exact windows are in hardware. Raw frames.csv, hardware.jsonl, hard-faults.jsonl, markers.json and report.md are kept in the local Diagnostics recording folder.");
+        text.AppendLine("- Each metric's source, unit, scope, availability, target interval and reading coverage are included in machine-summary metrics; exact windows are in hardware. " +
+            (_options.WriteRawExports ? "Raw frames.csv, hardware.jsonl, hard-faults.jsonl, markers.json and report.md are kept in the local Diagnostics recording folder." : "Raw files and ETL retention are disabled for this session."));
     }
 
     private void AppendTimeline(StringBuilder text)
