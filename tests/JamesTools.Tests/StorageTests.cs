@@ -11,7 +11,6 @@ internal static class StorageTests
     {
         PlannerIsSafeAndPure();
         CapacityUsesExistingFolder();
-        CleanupPreviewProtectsAndDeduplicates();
         SettingsPersistStorageOptions();
         await CapacityWarningsAndOrganisedStartup();
     }
@@ -44,69 +43,21 @@ internal static class StorageTests
         Check(Directory.GetDirectories(temp.Path, "*", SearchOption.AllDirectories).Length == before, "planning changed the directory tree");
     }
 
-    private static void CleanupPreviewProtectsAndDeduplicates()
-    {
-        using var temp = new TempDirectory();
-        var root = Path.Combine(temp.Path, "recordings"); Directory.CreateDirectory(root);
-        var old = WriteVideo(root, "old.mkv", 42);
-        var young = WriteVideo(root, "young.mp4", 2);
-        var favourite = WriteVideo(root, "favorite.mkv", 60);
-        var clip = WriteVideo(root, "clip.mkv", 60);
-        var active = WriteVideo(root, "active.mkv", 60);
-        var interrupted = WriteVideo(root, "interrupted.mkv", 60);
-        var outside = WriteVideo(temp.Path, "outside.mp4", 60);
-        var missing = Path.Combine(root, "missing.mkv");
-        var report = Path.Combine(root, "report.json"); File.WriteAllText(report, "report");
-        var sessions = new[]
-        {
-            Session("old", SessionStatus.Completed, old), Session("duplicate", SessionStatus.Completed, old),
-            Session("young", SessionStatus.Completed, young), Session("fav", SessionStatus.Completed, favourite, favourite: true),
-            Session("clip", SessionStatus.Completed, clip, (SessionAttachmentKind.Clip, clip)),
-            Session("active", SessionStatus.Active, active), Session("interrupted", SessionStatus.Interrupted, interrupted),
-            Session("outside", SessionStatus.Completed, outside), Session("missing", SessionStatus.Completed, missing),
-            Session("report", SessionStatus.Completed, report, (SessionAttachmentKind.PerformanceReport, report))
-        };
-        var now = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
-        var preview = CleanupPreviewBuilder.Build(sessions, [root], now, 30, null);
-        Check(preview.Entries.Count(e => e.Path.Equals(old, StringComparison.OrdinalIgnoreCase)) == 1, "duplicate references were not canonicalised");
-        Check(preview.Entries.Single(e => e.Path == old).Candidate && preview.Entries.Single(e => e.Path == old).AgeDays == 42, "age-boundary candidate was not suggested");
-        Check(!preview.Entries.Single(e => e.Path == young).Candidate, "recent recording crossed the age boundary");
-        Check(!preview.Entries.Single(e => e.Path == favourite).Candidate && preview.Entries.Single(e => e.Path == favourite).Reason.Contains("favourite", StringComparison.OrdinalIgnoreCase), "favourite was not protected");
-        Check(!preview.Entries.Single(e => e.Path == clip).Candidate, "clip attachment was not protected");
-        Check(!preview.Entries.Single(e => e.Path == active).Candidate && !preview.Entries.Single(e => e.Path == interrupted).Candidate, "non-completed session was not protected");
-        Check(!preview.Entries.Single(e => e.Path == outside).Candidate && preview.Entries.Single(e => e.Path == outside).Reason.Contains("outside", StringComparison.OrdinalIgnoreCase), "outside-root media was not excluded");
-        Check(!preview.Entries.Single(e => e.Path == missing).Candidate && preview.Entries.Single(e => e.Path == missing).Reason.Contains("missing", StringComparison.OrdinalIgnoreCase), "missing file was not excluded");
-        Check(preview.Entries.Single(e => e.Path == missing).AgeDays is null && preview.Entries.Single(e => e.Path == missing).SizeBytes is null, "missing file fabricated age or size metadata");
-        Check(preview.Entries.All(e => !e.Path.Equals(report, StringComparison.OrdinalIgnoreCase)), "performance report was included");
-        var budgetPreview = CleanupPreviewBuilder.Build(sessions, [root], now, null, 0.000000001);
-        Check(budgetPreview.Entries.Single(e => e.Path == old).Candidate, "budget did not suggest the oldest media first");
-        var generousBudget = CleanupPreviewBuilder.Build(sessions, [root], now, null, 1);
-        Check(!generousBudget.Entries.Any(e => e.Candidate), "media at or below the budget boundary was suggested");
-        Check(preview.PotentialReclaimableBytes == new FileInfo(old).Length, "potential reclaimable size was incorrect");
-        Check(preview.ToText().Contains("Suggestions only", StringComparison.OrdinalIgnoreCase), "export did not explain that this is a suggestion");
-        var malformedRoots = CleanupPreviewBuilder.Build(sessions, [root, "C:\\invalid\0root"], now, 30, null);
-        Check(malformedRoots.Entries.Single(e => e.Path == old).Candidate, "invalid draft root prevented valid suggestions");
-        var sharedProtection = CleanupPreviewBuilder.Build(sessions.Append(Session("shared favourite", SessionStatus.Completed, old, favourite: true)), [root], now, 30, null);
-        Check(!sharedProtection.Entries.Single(e => e.Path == old).Candidate, "another favourite reference did not protect a shared recording");
-        var relativeReference = CleanupPreviewBuilder.Build([Session("relative", SessionStatus.Completed, "relative.mkv")], [root], now, 30, null);
-        Check(relativeReference.Entries.Count == 0, "relative attachment path was resolved against the app working directory");
-    }
-
     private static void SettingsPersistStorageOptions()
     {
         var store = new SettingsStore(Path.GetTempPath());
-        var settings = new AppSettings { OrganiseCapturesByGameAndDate = true, LowStorageWarningsEnabled = true, LowStorageThresholdGiB = 22.5, CleanupSuggestionAgeDays = 35, CleanupSuggestionBudgetGiB = 100 };
+        var settings = new AppSettings { OrganiseCapturesByGameAndDate = true, LowStorageWarningsEnabled = true, LowStorageThresholdGiB = 22.5 };
         var snapshot = settings.Snapshot();
-        Check(snapshot.OrganiseCapturesByGameAndDate && snapshot.LowStorageWarningsEnabled && snapshot.CleanupSuggestionAgeDays == 35, "storage options were omitted from settings snapshots");
+        Check(snapshot.OrganiseCapturesByGameAndDate && snapshot.LowStorageWarningsEnabled, "storage options were omitted from settings snapshots");
         var loaded = store.Deserialize(store.Serialize(settings));
-        Check(loaded.OrganiseCapturesByGameAndDate && loaded.LowStorageWarningsEnabled && loaded.LowStorageThresholdGiB == 22.5 && loaded.CleanupSuggestionAgeDays == 35 && loaded.CleanupSuggestionBudgetGiB == 100, "storage options did not survive settings export/import");
+        Check(loaded.OrganiseCapturesByGameAndDate && loaded.LowStorageWarningsEnabled && loaded.LowStorageThresholdGiB == 22.5, "storage options did not survive settings export/import");
         Check(!new AppSettings().OrganiseCapturesByGameAndDate && !new AppSettings().LowStorageWarningsEnabled, "backwards-compatible defaults changed");
         var legacy = store.Deserialize("{}");
         Check(legacy.LowStorageThresholdGiB == 10 && !legacy.OrganiseCapturesByGameAndDate && !legacy.LowStorageWarningsEnabled, "legacy settings did not normalize to safe defaults");
-        var invalid = new AppSettings { LowStorageThresholdGiB = double.NaN, CleanupSuggestionAgeDays = 0, CleanupSuggestionBudgetGiB = double.PositiveInfinity };
+        var invalid = new AppSettings { LowStorageThresholdGiB = double.NaN };
         SettingsStore.Normalize(invalid);
-        Check(invalid.LowStorageThresholdGiB == 10 && invalid.CleanupSuggestionAgeDays is null && invalid.CleanupSuggestionBudgetGiB is null, "invalid storage options did not normalize safely");
-        Check(SettingsValidation.Validate(new AppSettings { LowStorageThresholdGiB = -1, CleanupSuggestionAgeDays = 0, CleanupSuggestionBudgetGiB = 0 }).Count >= 3, "storage settings validation missed invalid values");
+        Check(invalid.LowStorageThresholdGiB == 10, "invalid storage options did not normalize safely");
+        Check(SettingsValidation.Validate(new AppSettings { LowStorageThresholdGiB = -1 }).Count >= 1, "storage settings validation missed invalid values");
     }
 
     private static async Task CapacityWarningsAndOrganisedStartup()

@@ -109,6 +109,29 @@ public static class SteamGameDetector
         return roots;
     }
 
+    public static string? FindGameRecordingDirectory()
+    {
+        try
+        {
+            using var active = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam\ActiveProcess");
+            if (active?.GetValue("ActiveUser") is not int account || account == 0) return null;
+            foreach (var root in RegistrySteamRoots())
+            {
+                var user = Path.Combine(root, "userdata", unchecked((uint)account).ToString(CultureInfo.InvariantCulture));
+                var config = Path.Combine(user, "config", "localconfig.vdf");
+                if (!File.Exists(config)) continue;
+                var entries = Vdf.Parse(File.ReadAllText(config));
+                var local = entries.FirstOrDefault(e => e.Key.Equals("UserLocalConfigStore", StringComparison.OrdinalIgnoreCase))?.Children;
+                var recording = local?.FirstOrDefault(e => e.Key.Equals("GameRecording", StringComparison.OrdinalIgnoreCase))?.Children;
+                var custom = GetValue(recording, "BackgroundRecordPath");
+                var path = string.IsNullOrWhiteSpace(custom) ? Path.Combine(user, "gamerecordings") : custom;
+                if (TryNormalizePath(path, out var normalized) && Directory.Exists(normalized)) return normalized;
+            }
+        }
+        catch (Exception ex) when (IsFileError(ex) || ex is FormatException) { }
+        return null;
+    }
+
     private static void AddRegistryPath(HashSet<string> roots, RegistryHive hive, RegistryView view, string subKey, string value)
     {
         try

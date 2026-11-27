@@ -1,6 +1,4 @@
-using System.ComponentModel;
 using System.IO;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -12,18 +10,13 @@ using System.Windows.Threading;
 using System.Xml.Linq;
 using JamesTools;
 using JamesTools.Core.Configuration;
-using JamesTools.Core.ConfigurationSnapshots;
 using JamesTools.Core.Diagnostics;
-using JamesTools.Core.Scanning;
 
 internal static class UiAudit
 {
-    const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
     static string? output;
     static int layouts;
     static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
-    static T Field<T>(object value, string field) => (T)value.GetType().GetField(field, Private)!.GetValue(value)!;
-    static void Set(object value, string field, object data) => value.GetType().GetField(field, Private)!.SetValue(value, data);
     static IEnumerable<DependencyObject> Tree(DependencyObject parent)
     {
         yield return parent;
@@ -41,13 +34,10 @@ internal static class UiAudit
             if (control.Background is SolidColorBrush bg && bg.Color.A > 0)
                 Check(bg.Color.R < 140 || control.Name == "Navigation", $"{label}: {control.GetType().Name} {control.Name} has a light surface");
         }
-        if (window is WardogsReviewWindow review) Check(Field<DataGrid>(review, "table").ActualHeight >= 120, "Review table is squeezed out");
-        if (window is LiveWardogsWindow live) Check(Field<ListBox>(live, "events").ActualHeight >= 48, "Live event history is squeezed out");
-        if (window is RecordingPlaybackWindow) Check(Tree(content).OfType<Border>().Single(b => b.Name == "PlaybackPreview").ActualHeight >= 140, "Playback preview is squeezed out");
-        if (window is GameProfilesEditorWindow profiles) Check(((ComboBox)profiles.FindName("CaptureModeBox")).SelectedItem != null && ((ComboBox)profiles.FindName("PowerPlanBox")).SelectedItem != null, "Inherited profile values are displayed as empty selections");
+        if (window is SteamWardogsWindow steam)
+            Check(((DataGrid)steam.FindName("EventsTable")).ActualHeight >= 100, "Steam event table is squeezed out at " + width + "×" + height);
         if (output != null)
         {
-            // Paint only this synthetic visual tree; never capture the desktop or user's recordings.
             var backdrop = new DrawingVisual(); using (var dc = backdrop.RenderOpen()) dc.DrawRectangle(window.Background, null, new Rect(0, 0, width, height));
             var image = new RenderTargetBitmap((int)width, (int)height, 96, 96, PixelFormats.Pbgra32); image.Render(backdrop); image.Render(content);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
@@ -63,23 +53,16 @@ internal static class UiAudit
     }
     public static async Task Run(string data, string[] args)
     {
-        McpSettingsTests.Run(data);
         int render = Array.IndexOf(args, "--render");
         if (render >= 0) { output = Path.GetFullPath(args[render + 1]); Directory.CreateDirectory(output); }
         var game = new GameRule { Name = "Synthetic game", ExecutablePath = @"C:\Synthetic\game.exe" };
         var windows = new List<(string Name, Window Window)> {
-            ("benchmarks", new BenchmarkWindow(new BenchmarkStore(data), game.ExecutablePath, game.Name, (_,_,_,_,_) => throw new Exception("Unexpected benchmark capture"), _ => { })),
-            ("configuration", new ConfigurationSnapshotsWindow(new ConfigSnapshotStore(data), game, (_,_) => { })),
-            ("mcp-settings", new McpSettingsWindow(data)),
-            ("history", new PerformanceHistoryWindow(new PerformanceHistoryStore(data), game.ExecutablePath, game.Name, [], (_,_) => { })),
-            ("profiles", new GameProfilesEditorWindow([new GameProfile { Name = "Balanced" }], [], [game])),
             ("stutter", new PerformanceTimelineWindow(new ParsedPerformanceReport(new(3, 30, "1000/meanFrameMs", 60, 16.7, 40, 65, 4096, 1, 60, null, "Synthetic scene", "Hitch"), [new(0, 1, 40, 65, 4096, 0, 1, 0, 1, 0, 1, "test", 60, 60, 20, 0)], []) {
                 Investigations = [StutterInvestigator.Create([new FrameTelemetry(1, 2, "QPC", "7:A", 100, 80, 20, 10, 1, 11, 1, 12, 13, 0, "Independent Flip", "Application")],
                     [new DiagnosticHardwareSample(0, 2, 0, 0, null, null, new Dictionary<string, double?> { ["gpuPercent"] = null, ["processReadMiBps"] = 4 })], [], [new(1, "Noticed hitch")])]
             }, "Synthetic spike")),
             ("timeline", new PerformanceTimelineWindow(new ParsedPerformanceReport(new(2, 30, "Synthetic", 60, 16.7, 40, 65, 4096, 1, 60, null, "Synthetic scene", "Test marker"), [new(0, 1, 40, 65, 4096, 0, 1, 0, 1, 0, 1, "test", 60, 60, 20, 0)], [new(1, "Synthetic stutter")]), "Synthetic report")),
-            ("playback", new RecordingPlaybackWindow(Path.Combine(data, "synthetic-not-opened.mkv"), TimeSpan.Zero)),
-            ("live", new LiveWardogsWindow(new(), _ => { }))
+            ("steam-wardogs", SteamWardogsUiTests.CreateWindow(() => null))
         };
         foreach (var entry in windows)
         {
@@ -87,63 +70,9 @@ internal static class UiAudit
             Render(entry.Window, entry.Name, Math.Max(entry.Window.MinWidth, 470) - 32, Math.Max(entry.Window.MinHeight, 420) - 40);
             await Close(entry.Window);
         }
-        var review = new WardogsReviewWindow(data, "", (_,_,_,_) => { });
-        var fixture = new SavedWardogsScan { Source = @"C:\Synthetic\round.mkv", Status = ScanStatus.Completed,
-            Result = new("synthetic", "UI fixture", new(), 200, [new(1, WardogsEventKind.Kill, 45, "KILL SAMPLE", .9, .1, 3), new(2, WardogsEventKind.Headshot, 90, "HEADSHOT KILL SAMPLE", .95, .2, 3)]) };
-        typeof(WardogsReviewWindow).GetMethod("Show", Private, [typeof(SavedWardogsScan)])!.Invoke(review, [fixture]);
-        Set(review, "refreshing", true); Field<ListBox>(review, "scans").ItemsSource = new[] { fixture }; Field<ListBox>(review, "scans").SelectedItem = fixture; Set(review, "refreshing", false);
-        foreach (bool expanded in new[] { false, true })
-        {
-            Render(review, "review", 1118, 810);
-            Tree((DependencyObject)review.Content).OfType<Expander>().Single().IsExpanded = expanded;
-            Render(review, expanded ? "review-expanded" : "review-small", 768, 610);
-        }
-        var scrolls = Tree((DependencyObject)review.Content).OfType<ScrollViewer>().Where(s => s.Content is StackPanel && s.ScrollableHeight > 0).ToArray();
-        Check(scrolls.Length >= 2, "Review settings/actions need bounded scroll areas");
-        foreach (var scroll in scrolls) { scroll.ScrollToEnd(); scroll.UpdateLayout(); Check(scroll.VerticalOffset > 0, "Review controls cannot be reached by scrolling"); }
-        // This fixture isn't in the store: clear it before closing so no synthetic metadata is saved.
-        Set(review, "selected", null!); await Close(review);
-        await CloseLifecycle(data);
         await Controls();
         AuditMainPages(game);
         Console.WriteLine($"PASS {layouts} synthetic window/page layouts, shared dark surfaces and minimum-size content");
-    }
-    static async Task CloseLifecycle(string data)
-    {
-        var review = new WardogsReviewWindow(data, "", (_,_,_,_) => { });
-        var drain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Set(review, "pump", drain.Task);
-        int closes = 0; review.Closed += (_,_) => closes++;
-        review.Close(); review.Close();
-        Check(closes == 0, "Review closed before pending work drained");
-        drain.SetResult(); await Task.Delay(40);
-        Check(closes == 1, "Review did not close exactly once after draining");
-
-        var loaded = new WardogsReviewWindow(Path.Combine(data, "loaded"), "", (_,_,_,_) => { }) { ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000 };
-        loaded.Show();
-        await Field<Task>(loaded, "initialization").WaitAsync(TimeSpan.FromSeconds(3));
-        loaded.Close(); await Task.Delay(80);
-        Check(!loaded.IsVisible && Field<bool>(loaded, "allowClose"), "Loaded review did not close cleanly");
-
-        using var stop = new CancellationTokenSource();
-        var live = new LiveWardogsWindow(new(), _=>{});
-        Set(live, "cancel", stop); Set(live, "run", Task.Delay(Timeout.Infinite, stop.Token));
-        closes = 0; live.Closed += (_,_) => closes++;
-        live.Close(); live.Close(); await Task.Delay(40);
-        Check(stop.IsCancellationRequested && closes == 1, "Live close must cancel and finish once");
-        var benchmarkStore = new BenchmarkStore(Path.Combine(data, "cancel-benchmark"));
-        var recipe = new BenchmarkRecipe(Guid.NewGuid(), @"C:\Synthetic\game.exe", "Cancellation fixture", "Synthetic", "Default", 0, 10, 1);
-        var set = new BenchmarkSet(Guid.NewGuid(), recipe, DateTime.UtcNow, [new(Guid.NewGuid(), 1)]);
-        var benchmark = new BenchmarkWindow(benchmarkStore, recipe.GameKey, "Synthetic", (_, run, _, _, token) => {
-            var completion = new TaskCompletionSource<BenchmarkRun>();
-            token.Register(() => completion.SetResult(run with { Status = "Incomplete", Reason = "Test close" })); return completion.Task;
-        }, _ => { });
-        Set(benchmark, "active", set);
-        var running = (Task)typeof(BenchmarkWindow).GetMethod("Run", Private)!.Invoke(benchmark, null)!; Set(benchmark, "currentRun", running);
-        closes = 0; benchmark.Closed += (_,_) => closes++;
-        benchmark.Close(); await running; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
-        Check(closes == 1 && benchmarkStore.Data.Sets.Single().Runs.Single() is { Status: "Incomplete", Reason: "Test close" }, $"Benchmark close failed: closes={closes}; saved={benchmarkStore.Data.Sets.FirstOrDefault()?.Runs.FirstOrDefault()?.Status}; status={Field<TextBlock>(benchmark, "status").Text}");
-        Console.WriteLine("PASS idle/loaded/pending review close, repeated close, live and benchmark cancellation");
     }
     public sealed class EditableRow { public string Label { get; set; } = "Before"; public string Decision { get; set; } = "Keep"; }
     static async Task Controls()
@@ -155,6 +84,10 @@ internal static class UiAudit
         grid.Columns.Add(new DataGridTextColumn { Header = "Label", Binding = new Binding(nameof(item.Label)) { UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged } });
         var stack = new StackPanel(); stack.Children.Add(combo); stack.Children.Add(grid);
         var slider = new Slider { Minimum = 0, Maximum = 100, Value = 50, LargeChange = 10 }; stack.Children.Add(slider);
+        var actions = new ActionMenu { Content = "Test actions" }; stack.Children.Add(actions);
+        bool invoked = false;
+        var available = actions.Add("Available action", (_, _) => invoked = true);
+        var unavailable = actions.Add("Unavailable action", (_, _) => { }); unavailable.IsEnabled = false;
         var window = new Window { Content = stack, Width = 420, Height = 260, ShowActivated = false, ShowInTaskbar = false, Left = -20000, Top = -20000 }; WindowTheme.Apply(window); window.Show();
         combo.IsDropDownOpen = true; await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         var popup = (Popup)combo.Template.FindName("PART_Popup", combo);
@@ -167,6 +100,14 @@ internal static class UiAudit
         Check(grid.CommitEdit(DataGridEditingUnit.Cell, true) && grid.CommitEdit(DataGridEditingUnit.Row, true) && item.Label == "After", "Data grid label edit did not commit");
         Slider.IncreaseLarge.Execute(null, slider); Check(slider.Value == 60, "Slider command stopped updating its value");
         Check(((Track)slider.Template.FindName("PART_Track", slider)).Value == slider.Value, "Slider thumb lost its value binding");
+        var invokeActions = (System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(actions)
+            .GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!;
+        invokeActions.Invoke(); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Check(actions.ContextMenu.IsOpen && unavailable.Visibility == Visibility.Collapsed, "Action menu should open and hide unavailable commands");
+        var invokeItem = (System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.MenuItemAutomationPeer(available)
+            .GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!;
+        invokeItem.Invoke(); await Task.Delay(50); await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        Check(invoked && !actions.ContextMenu.IsOpen, $"Action menu should invoke its command and close (invoked={invoked}, open={actions.ContextMenu.IsOpen})");
         await Close(window);
         Console.WriteLine("PASS dropdown popup/selection, slider commands and data-grid edit/commit with shared templates");
     }
@@ -179,6 +120,8 @@ internal static class UiAudit
         xml.Root!.Attribute(x + "Class")!.Remove();
         if (name == "MainWindow") { xml.Root.SetAttributeValue(XNamespace.Xmlns + "audit", "clr-namespace:JamesTools.UiChecks;assembly=JamesTools.UiTests"); xml.Root.Name = XNamespace.Get("clr-namespace:JamesTools.UiChecks;assembly=JamesTools.UiTests") + "MarkupHostWindow"; }
         xml.Root.SetAttributeValue(XNamespace.Xmlns + "ui", "clr-namespace:JamesTools;assembly=MehTools");
+        foreach (var element in xml.Descendants().Where(el => el.Name.NamespaceName == "clr-namespace:JamesTools").ToArray())
+            element.Name = XNamespace.Get("clr-namespace:JamesTools;assembly=MehTools") + element.Name.LocalName;
         foreach (var attribute in xml.Descendants().Attributes().Where(a => a.Name.NamespaceName == "clr-namespace:JamesTools").ToArray()) { attribute.Parent!.SetAttributeValue(XNamespace.Get("clr-namespace:JamesTools;assembly=MehTools") + attribute.Name.LocalName, attribute.Value); attribute.Remove(); }
         var events = new[] { typeof(Window), typeof(UIElement), typeof(FrameworkElement), typeof(Button), typeof(TextBox), typeof(Selector), typeof(DataGrid), typeof(CheckBox) }
             .SelectMany(t=>t.GetEvents()).Select(e=>e.Name).ToHashSet();
@@ -187,24 +130,43 @@ internal static class UiAudit
     }
     static void AuditMainPages(GameRule game)
     {
-        // Parse markup without code-behind so this audit cannot start automation, hardware sampling or OBS.
         var main = MarkupWindow("MainWindow"); var settings = new AppSettings(); settings.Games.Add(game); main.DataContext = settings;
         var pages = (TabControl)main.FindName("Pages");
         foreach (TabItem page in pages.Items)
         {
+            var index = pages.Items.IndexOf(page);
             pages.SelectedItem = page;
-            ((ListBox)main.FindName("Navigation")).SelectedIndex = pages.Items.IndexOf(page);
-            ((TextBlock)main.FindName("PageTitle")).Text = page.Header.ToString(); ((TextBlock)main.FindName("PageSubtitle")).Text = "Synthetic layout audit · automation is not loaded";
+            var nav = (ListBox)main.FindName("Navigation");
+            nav.SelectedIndex = index < nav.Items.Count ? index : -1;
+            ((TextBlock)main.FindName("PageTitle")).Text = page.Header.ToString();
             Render(main, "main-" + page.Header, 1148, 760);
             Render(main, "main-" + page.Header, 948, 650);
         }
         pages.SelectedIndex = 3; ((FrameworkElement)main.Content).UpdateLayout();
         var targeting = (ComboBox)main.FindName("VibranceTargetBox"); var display = (ComboBox)main.FindName("VibranceDisplayBox");
+        var displayOptions = (WrapPanel)display.Parent;
         Check(targeting.Items.Count == 3 && display.Items.Count == 1, "Colour selectors do not resolve view-owned option lists");
+        Check(displayOptions.Visibility == Visibility.Collapsed, "Display picker should be hidden for all displays");
         targeting.SelectedValue = VibranceTargetMode.SelectedDisplay; display.SelectedIndex = 0;
         Check(settings.VibranceTargetMode == VibranceTargetMode.SelectedDisplay && settings.VibranceSelectedDisplay == "synthetic", "Colour selections no longer update saved settings");
+        Check(displayOptions.Visibility == Visibility.Visible, "Selecting a specific display should reveal the picker");
+        Check(((Expander)main.FindName("ObsSetupOptions")).IsExpanded == false &&
+              ((FrameworkElement)main.FindName("ObsLiveDetails")).Visibility == Visibility.Collapsed,
+              "Recording should open with setup and disconnected controls tucked away");
+        Check(((Button)main.FindName("StartPerformanceButton")).Visibility == Visibility.Visible &&
+              ((Button)main.FindName("StopPerformanceButton")).Visibility == Visibility.Collapsed &&
+              ((FrameworkElement)main.FindName("PerformanceReportActions")).Visibility == Visibility.Collapsed,
+              "Idle performance view should offer Start and hide capture and report actions");
+        pages.SelectedIndex = 4;
+        ((FrameworkElement)main.Content).UpdateLayout();
+        var games = (ComboBox)main.FindName("PerformanceGame");
+        Check(games.Visibility == Visibility.Collapsed, "A single game should not require a game picker");
+        settings.Games.Add(new GameRule { Name = "Other game", ExecutablePath = @"C:\Synthetic\other.exe" });
+        Check(games.Visibility == Visibility.Visible, "Multiple games should reveal the game picker");
+        Check(Tree((DependencyObject)main.Content).OfType<Button>().Any(b => Equals(b.Content, "Stutter Investigator…")) &&
+              Tree((DependencyObject)main.Content).OfType<Button>().Any(b => Equals(b.Content, "Copy for AI")),
+            "Performance should retain Stutter Investigator and offer Copy for AI");
         Console.WriteLine("PASS colour option bindings and two-way selection through main-window markup");
         main.Close();
-        var overlay = MarkupWindow("PerformanceOverlay"); Render(overlay, "overlay", 260, 220); overlay.Close();
     }
 }

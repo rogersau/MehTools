@@ -2,13 +2,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\JamesTools.Core\JamesTools.Core.csproj" />
-    <ProjectReference Include="..\JamesTools.OcrWorker\JamesTools.OcrWorker.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\JamesTools.Mcp\JamesTools.Mcp.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -16,13 +14,18 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\MehTools.ico</ApplicationIcon>
-    <Version>0.4.0</Version>
+    <Version>1.0.0</Version>
     <AssemblyName>MehTools</AssemblyName>
     <Product>Meh Tools</Product>
     <Title>Meh Tools</Title>
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="..\..\third_party\native-tools\win-x64\ffmpeg\*.exe" Condition="Exists('..\..\third_party\native-tools\win-x64\ffmpeg\ffmpeg.exe')">
+      <Link>tools\ffmpeg\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Include="..\..\third_party\PresentMon\PresentMon.exe">
       <Link>tools\PresentMon\PresentMon.exe</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -35,18 +38,4 @@
     </Content>
   </ItemGroup>
 
-  <Target Name="BuildLiveWorker" AfterTargets="Build">
-    <ItemGroup><LiveWorkerFiles Include="..\JamesTools.OcrWorker\bin\$(Configuration)\net10.0-windows\$(RuntimeIdentifier)\*" /></ItemGroup>
-    <Copy SourceFiles="@(LiveWorkerFiles)" DestinationFolder="$(TargetDir)tools\ocr" />
-  </Target>
-  <Target Name="PublishLiveWorker" AfterTargets="Publish">
-    <MSBuild Projects="..\JamesTools.OcrWorker\JamesTools.OcrWorker.csproj" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)tools\ocr\" />
-  </Target>
-  <Target Name="BuildMcpServer" AfterTargets="Build">
-    <ItemGroup><McpServerFiles Include="..\JamesTools.Mcp\bin\$(Configuration)\net10.0-windows\$(RuntimeIdentifier)\**\*" /></ItemGroup>
-    <Copy SourceFiles="@(McpServerFiles)" DestinationFiles="@(McpServerFiles->'$(TargetDir)tools\mcp\%(RecursiveDir)%(Filename)%(Extension)')" />
-  </Target>
-  <Target Name="PublishMcpServer" AfterTargets="Publish">
-    <MSBuild Projects="..\JamesTools.Mcp\JamesTools.Mcp.csproj" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(PublishDir)tools\mcp\" />
-  </Target>
 </Project>

@@ -9,7 +9,13 @@ namespace JamesTools.Core.Automation;
 public sealed record AutomationStatus(string Game, string Recording, string Vibrance, string Power, string Notice, string Headline, string[] ActiveGamePaths);
 
 public sealed record AutomationNotification(string Title, string Message, bool Warning);
-public sealed record AutomationRecordingLifecycle(long Generation, Guid LaunchId, CaptureMode RequestedMode, bool IsOwned, bool IntentionalStop);
+public sealed record AutomationRecordingLifecycle(long Generation, Guid LaunchId, CaptureMode RequestedMode, bool IsOwned, bool IntentionalStop)
+{
+    public int GamePid { get; init; }
+    public string? GameExecutable { get; init; }
+    public string? GameRulePath { get; init; }
+    public int ReplaySeconds { get; init; }
+}
 
 /// <summary>Owns only the recording it starts. All other automation remains independent.</summary>
 public sealed class AutomationService : IAsyncDisposable
@@ -32,6 +38,8 @@ public sealed class AutomationService : IAsyncDisposable
     private string? _recordingGamePath;
     private string? _recordingDirectory;
     private int _recordingGamePid;
+    private string? _recordingExecutable;
+    private int _recordingReplaySeconds;
     private string _recordingRequested = "recording";
     private long _recordingGeneration;
     private Guid _recordingLaunchId;
@@ -186,11 +194,12 @@ public sealed class AutomationService : IAsyncDisposable
             _attemptPid = _blockedPid = _failedAttempts = 0;
             _retryAfter = DateTime.MinValue;
         }
-        var selected = settings.RecordingEnabled ? matched.FirstOrDefault(g => g.Rule.Record) : null;
-        var ownerMatch = settings.RecordingEnabled
-            ? matched.FirstOrDefault(g => g.Rule.Record && g.Process.Id == _recordingGamePid &&
-                string.Equals(g.Rule.ExecutablePath, _recordingGamePath, StringComparison.OrdinalIgnoreCase))
-            : null;
+        var blockedProcesses = AutomationPolicy.RecordingOptOutProcessIds(matched);
+        var eligible = settings.RecordingEnabled
+            ? matched.Where(g => g.Rule.Record && !blockedProcesses.Contains(g.Process.Id)).ToArray() : [];
+        var selected = eligible.FirstOrDefault();
+        var ownerMatch = eligible.FirstOrDefault(g => g.Process.Id == _recordingGamePid &&
+            string.Equals(g.Rule.ExecutablePath, _recordingGamePath, StringComparison.OrdinalIgnoreCase));
         if (_recorder.IsOwnedRecording)
         {
             if (settings.LowStorageWarningsEnabled && _utcNow() >= _nextStorageCheckUtc && !string.IsNullOrWhiteSpace(_recordingDirectory))
@@ -201,12 +210,17 @@ public sealed class AutomationService : IAsyncDisposable
             if (ownerMatch is not null) { _recordingEndSince = null; return $"OBS launched ({_recordingRequested} requested)"; }
             _recordingEndSince ??= _utcNow();
             var delaySource = settings.RecordingStopDelaySeconds;
+            bool captureDisabled = !settings.RecordingEnabled || blockedProcesses.Contains(_recordingGamePid);
             if (_recordingGamePath is not null)
             {
                 var ownerRule = settings.Games.FirstOrDefault(g => string.Equals(g.ExecutablePath, _recordingGamePath, StringComparison.OrdinalIgnoreCase));
-                if (ownerRule is not null) delaySource = EffectiveGameOptionsResolver.Resolve(settings, ownerRule).RecordingStopDelaySeconds;
+                if (ownerRule is not null)
+                {
+                    captureDisabled |= !ownerRule.Record;
+                    delaySource = EffectiveGameOptionsResolver.Resolve(settings, ownerRule).RecordingStopDelaySeconds;
+                }
             }
-            var delay = settings.RecordingEnabled ? Math.Clamp(delaySource, 0, 120) : 0;
+            var delay = captureDisabled ? 0 : Math.Clamp(delaySource, 0, 120);
             if (_utcNow() - _recordingEndSince < TimeSpan.FromSeconds(delay)) return "Stopping soon";
             var stopped = await StopOwnedWithLifecycleAsync();
             var captureDirectory = _recordingDirectory;
@@ -214,15 +228,16 @@ public sealed class AutomationService : IAsyncDisposable
             Volatile.Write(ref _recordingGamePath, null);
             _recordingDirectory = null;
             _recordingGamePid = 0;
-            Log(stopped ? "OBS closed after the game ended." : "OBS didn't close. It's still open.");
-            var msg = stopped ? "OBS closed after the game ended. Actual recording output wasn't checked here." : "OBS didn't close. It's still open.";
-            if (stopped && settings.OpenRecordingsAfterStop && !string.IsNullOrWhiteSpace(captureDirectory) && Directory.Exists(captureDirectory))
+            var reason = captureDisabled ? "OBS closed because automatic capture was turned off." : "OBS closed after the game ended.";
+            Log(stopped ? reason : "OBS didn't close. It's still open.");
+            var msg = stopped ? reason + " Actual recording output wasn't checked here." : "OBS didn't close. It's still open.";
+            if (stopped && !captureDisabled && settings.OpenRecordingsAfterStop && !string.IsNullOrWhiteSpace(captureDirectory) && Directory.Exists(captureDirectory))
             {
                 msg += " Opening recordings folder.";
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(captureDirectory) { UseShellExecute = true }); } catch { }
             }
             RaiseNotification(stopped ? "OBS closed" : "OBS needs attention", msg, !stopped);
-            return stopped ? "Ready" : "OBS still open";
+            return stopped ? IdleRecordingStatus() : "OBS still open";
         }
 
         _recordingEndSince = null;
@@ -243,7 +258,7 @@ public sealed class AutomationService : IAsyncDisposable
         if (selected is null)
         {
             _attemptPid = _blockedPid = _failedAttempts = 0;
-            return settings.RecordingEnabled ? "Ready" : "Off";
+            return IdleRecordingStatus();
         }
         if (_attemptPid != selected.Process.Id)
         {
@@ -282,6 +297,8 @@ public sealed class AutomationService : IAsyncDisposable
             Log(message);
             return "Needs attention";
         }
+        // Storage checks can take long enough for a capture preference to change mid-tick.
+        if (!ReferenceEquals(settings, Volatile.Read(ref _settings))) return "Updating capture settings";
         var result = _recorder.TryStart(new ObsSettings(settings.ObsExecutablePath, settings.ObsConfigRoot,
             folderPlan.PlannedDirectory, settings.ObsPortable, effective.CaptureMode, effective.ReplayBufferSeconds),
             selected.Process.Id, selected.Process.FullPath);
@@ -292,6 +309,8 @@ public sealed class AutomationService : IAsyncDisposable
                 _recordingDirectory = folderPlan.PlannedDirectory;
                 _nextStorageCheckUtc = _utcNow().AddSeconds(30);
                 _recordingGamePid = selected.Process.Id;
+                _recordingExecutable = selected.Process.FullPath;
+                _recordingReplaySeconds = effective.ReplayBufferSeconds;
                 var requested = effective.CaptureMode switch
                 {
                     CaptureMode.Replay => "replay buffer",
@@ -321,6 +340,9 @@ public sealed class AutomationService : IAsyncDisposable
                 if (_failedAttempts >= 3) RaiseNotification("Recording needs attention", result.Message, true);
                 return "Needs attention";
         }
+
+        string IdleRecordingStatus() => !settings.RecordingEnabled ? "Off"
+            : selected is null && matched.Count > 0 ? "Off for this game" : "Ready";
     }
 
     private async Task CheckStorageAsync(string path, AppSettings settings, StringBuilder notice, bool beforeStart)
@@ -522,9 +544,7 @@ public sealed class AutomationService : IAsyncDisposable
             if (match is not null)
             {
                 target = EffectiveGameOptionsResolver.Resolve(settings, match.Rule).PowerPlanId;
-                var customPowerPlan = match.Rule.PowerPlanId is Guid gamePlan
-                    ? gamePlan != Guid.Empty
-                    : match.Rule.ProfileId is Guid profileId && settings.Profiles.FirstOrDefault(p => p.Id == profileId)?.PowerPlanId is Guid profilePlan && profilePlan != Guid.Empty;
+                var customPowerPlan = match.Rule.PowerPlanId is Guid gamePlan && gamePlan != Guid.Empty;
                 if (customPowerPlan)
                     label = match.Rule.Name + " plan";
             }
@@ -686,11 +706,22 @@ public sealed class AutomationService : IAsyncDisposable
     {
         if (_recordingLaunchId == Guid.Empty) return;
         RecordingLifecycleChanged?.Invoke(new AutomationRecordingLifecycle(
-            _recordingGeneration, _recordingLaunchId, _recordingCaptureMode, isOwned, intentionalStop));
+            _recordingGeneration, _recordingLaunchId, _recordingCaptureMode, isOwned, intentionalStop)
+        {
+            GamePid = _recordingGamePid,
+            GameExecutable = _recordingExecutable,
+            GameRulePath = _recordingGamePath,
+            ReplaySeconds = _recordingReplaySeconds
+        });
     }
 }
 public static class AutomationPolicy
 {
+    // An exact opt-out must not be bypassed by a broader folder/name rule for the same process.
+    public static HashSet<int> RecordingOptOutProcessIds(IEnumerable<MatchedGame> matched)
+        => matched.Where(g => !g.Rule.Record && g.MatchKind is GameProcessMatchKind.PrimaryPath)
+            .Select(g => g.Process.Id).ToHashSet();
+
     public static IReadOnlyList<MatchedGame> MatchGames(IEnumerable<GameRule> rules, IReadOnlyList<RunningProcess> processes)
     {
         var matches = new List<MatchedGame>();
@@ -746,17 +777,13 @@ public static class AutomationPolicy
         IEnumerable<GameRule>? allRules = null)
     {
         var mode = (rule.MatchMode ?? "path").Trim().ToLowerInvariant();
-        var exe = rule.ExecutablePath ?? "";
-        var aliasPaths = (rule.ExecutableAliases ?? []).Select(ExecutablePathRules.Normalize)
-            .Where(path => path is not null).Cast<string>().ToArray();
-        var evaluated = processes.Select(process => (Process: process, Kind: MatchKind(rule, process, mode, aliasPaths)))
+        var evaluated = processes.Select(process => (Process: process, Kind: MatchKind(rule, process, mode)))
             .OrderBy(item => item.Kind switch
             {
                 GameProcessMatchKind.PrimaryPath => 0,
-                GameProcessMatchKind.AliasPath => 1,
-                GameProcessMatchKind.NameMode => 2,
-                GameProcessMatchKind.FolderMode => 2,
-                _ => 3
+                GameProcessMatchKind.NameMode => 1,
+                GameProcessMatchKind.FolderMode => 1,
+                _ => 2
             })
             .ThenBy(item => item.Process.Id).ToArray();
         var match = evaluated.FirstOrDefault(item => item.Kind is not null);
@@ -780,14 +807,12 @@ public static class AutomationPolicy
         return new GameDetectionEvaluation(rule, mode, matched, relevant, competitors, summary);
     }
 
-    private static GameProcessMatchKind? MatchKind(GameRule rule, RunningProcess process, string mode, IReadOnlyList<string> aliasPaths)
+    private static GameProcessMatchKind? MatchKind(GameRule rule, RunningProcess process, string mode)
     {
         var processPath = ExecutablePathRules.Normalize(process.FullPath);
         var primary = ExecutablePathRules.Normalize(rule.ExecutablePath);
         if (processPath is not null && primary is not null && string.Equals(processPath, primary, StringComparison.OrdinalIgnoreCase))
             return GameProcessMatchKind.PrimaryPath;
-        if (processPath is not null && aliasPaths.Any(alias => string.Equals(processPath, alias, StringComparison.OrdinalIgnoreCase)))
-            return GameProcessMatchKind.AliasPath;
         if (mode == "name")
         {
             var name = Path.GetFileName(rule.ExecutablePath ?? "");
@@ -807,11 +832,9 @@ public static class AutomationPolicy
 
     private static bool IsLikelyCandidate(GameRule rule, RunningProcess process, string mode)
     {
-        var expectedNames = new[] { Path.GetFileName(rule.ExecutablePath ?? "") }
-            .Concat((rule.ExecutableAliases ?? []).Select(Path.GetFileName))
-            .Where(name => !string.IsNullOrWhiteSpace(name));
-        if (expectedNames.Any(name => string.Equals(name, process.Name, StringComparison.OrdinalIgnoreCase) ||
-            (process.FullPath is not null && string.Equals(name, Path.GetFileName(process.FullPath), StringComparison.OrdinalIgnoreCase)))) return true;
+        var expectedName = Path.GetFileName(rule.ExecutablePath ?? "");
+        if (!string.IsNullOrWhiteSpace(expectedName) && (string.Equals(expectedName, process.Name, StringComparison.OrdinalIgnoreCase) ||
+            (process.FullPath is not null && string.Equals(expectedName, Path.GetFileName(process.FullPath), StringComparison.OrdinalIgnoreCase)))) return true;
         if (mode == "folder" && process.FullPath is not null)
         {
             var primary = ExecutablePathRules.Normalize(rule.ExecutablePath);

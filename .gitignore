@@ -8,3 +8,4 @@ artifacts/
 *.suo
 *.log
 TestResults/
+third_party/native-tools/win-x64/

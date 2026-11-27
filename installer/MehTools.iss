@@ -1,7 +1,7 @@
 ; Inno Setup 6 script for Meh Tools.
 ; Publish the self-contained app first, then compile this script:
 ;   dotnet publish src/JamesTools/JamesTools.csproj -c Release -r win-x64 --self-contained true -p:DebugType=None -o artifacts/publish
-;   iscc /DAppVersion=0.3.0 installer/MehTools.iss
+;   iscc /DAppVersion=1.0.0 installer/MehTools.iss
 
 #define AppName "Meh Tools"
 #define AppExe "MehTools.exe"
@@ -33,6 +33,15 @@ CloseApplications=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\tools\mcp"
+Type: filesandordirs; Name: "{app}\tools\ocr"
+Type: filesandordirs; Name: "{app}\tools\tesseract"
+Type: files; Name: "{app}\tools\licenses\Tesseract-Apache-2.0.txt"
+Type: files; Name: "{app}\tools\licenses\Tessdata-fast-Apache-2.0.txt"
+Type: files; Name: "{app}\tools\licenses\Leptonica.txt"
+Type: files; Name: "{app}\tools\licenses\libpng.txt"
 
 [Files]
 Source: "..\artifacts\publish\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion

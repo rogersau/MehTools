@@ -75,7 +75,7 @@ public sealed class ObsRecorder : IDisposable
                 var gamePath = FullPath(gameExePath, "game executable");
                 var gameStart = GetProcessIdentity(gamePid, gamePath);
 
-                if (!Enum.IsDefined(settings.CaptureMode)) return Failed("Choose recording, replay, or both for capture mode.");
+                if (!Enum.IsDefined(settings.CaptureMode)) return Failed("Choose a supported capture mode.");
                 var preparation = ObsConfiguration.Prepare(configRoot, recordingDirectory, gamePid, gamePath,
                     ObsWindows.FindVisibleWindow, settings.CaptureMode, settings.ReplayBufferSeconds);
                 if (preparation.WaitingForWindow)
