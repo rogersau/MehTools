@@ -5,9 +5,7 @@ namespace JamesTools.Core.Configuration;
 public sealed class AppSettings
 {
     public JamesTools.Core.Diagnostics.DiagnosticOptions Diagnostics { get; set; } = new();
-    public LiveWardogsSettings LiveWardogs { get; set; } = new();
     public SteamHighlightSettings SteamHighlights { get; set; } = new();
-    public bool BackgroundWardogsOcr { get; set; }
     public int SchemaVersion { get; set; } = 2;
     public bool AutomationEnabled { get; set; }
     public bool StartWithWindows { get; set; }
@@ -15,7 +13,6 @@ public sealed class AppSettings
     public bool TrayOnMinimize { get; set; }
     public int PollSeconds { get; set; } = 4;
     public ObservableCollection<GameRule> Games { get; set; } = [];
-    public ObservableCollection<GameProfile> Profiles { get; set; } = [];
 
     public string MediaToolsFolder { get; set; } = "";
     public bool RecordingEnabled { get; set; }
@@ -26,16 +23,9 @@ public sealed class AppSettings
     public int ObsWebSocketPort { get; set; } = 4455;
     public int RecordingStopDelaySeconds { get; set; } = 10;
     public int ReplayBufferSeconds { get; set; } = 60;
-    public bool RecordingHealthAlertsEnabled { get; set; }
-    public bool RecordingHealthSoundEnabled { get; set; }
-    public int RecordingHealthStallSeconds { get; set; } = 30;
     public bool OrganiseCapturesByGameAndDate { get; set; }
     public bool LowStorageWarningsEnabled { get; set; }
     public double LowStorageThresholdGiB { get; set; } = 10;
-    /// <summary>Optional age limit used only to suggest cleanup candidates.</summary>
-    public int? CleanupSuggestionAgeDays { get; set; }
-    /// <summary>Optional storage budget used only to suggest cleanup candidates (GiB).</summary>
-    public double? CleanupSuggestionBudgetGiB { get; set; }
 
     public bool VibranceEnabled { get; set; }
     public int DesktopVibrance { get; set; } = 50;
@@ -52,25 +42,11 @@ public sealed class AppSettings
 
     public bool ShowNotifications { get; set; } = true;
 
-    // Performance / overlay
+    // Performance
     public bool NetworkDiagnosticsEnabled { get; set; }
     public string NetworkTargets { get; set; } = "";
     public string PresentMonPath { get; set; } = "";
-    public bool OverlayShowCpu { get; set; } = true;
-    public bool OverlayShowGpu { get; set; } = true;
-    public bool OverlayShowFps { get; set; } = true;
-    public bool OverlayShowLatency { get; set; } = true;
-    public double OverlayOpacity { get; set; } = 0.92;
-    public double OverlayLeft { get; set; } = double.NaN;
-    public double OverlayTop { get; set; } = double.NaN;
-    public bool OverlayClickThrough { get; set; }
-    public string OverlayHotkey { get; set; } = ""; // e.g. Ctrl+Alt+O
     public string SaveClipHotkey { get; set; } = "Ctrl+Alt+F10";
-    public bool RollingDiagnosticsEnabled { get; set; }
-    public int RollingBeforeSeconds { get; set; } = 60;
-    public int RollingAfterSeconds { get; set; } = 15;
-    public string RollingHotkey { get; set; } = "Ctrl+Alt+F7";
-    public string BookmarkHotkey { get; set; } = "Ctrl+Alt+F8";
     public string StutterMarkerHotkey { get; set; } = "Ctrl+Alt+F9";
 
     // Detection
@@ -84,14 +60,11 @@ public sealed class AppSettings
     public bool OpenRecordingsAfterStop { get; set; }
     public bool CloseAppsOnGameLaunch { get; set; }
     public ObservableCollection<string> AppsToCloseOnGameLaunch { get; set; } = [];
-    public string LastOverlayGamePath { get; set; } = "";
 
     public AppSettings Snapshot() => new()
     {
         Diagnostics = (Diagnostics ?? new()).Copy(),
-        LiveWardogs = (LiveWardogs ?? new()).Copy(),
         SteamHighlights = (SteamHighlights ?? new()).Copy(),
-        BackgroundWardogsOcr = BackgroundWardogsOcr,
         SchemaVersion = SchemaVersion,
         NetworkDiagnosticsEnabled = NetworkDiagnosticsEnabled,
         NetworkTargets = NetworkTargets,
@@ -102,7 +75,6 @@ public sealed class AppSettings
         TrayOnMinimize = TrayOnMinimize,
         PollSeconds = PollSeconds,
         Games = new ObservableCollection<GameRule>(Games.Select(game => game.Copy())),
-        Profiles = new ObservableCollection<GameProfile>(Profiles.Select(profile => profile.Copy())),
         RecordingEnabled = RecordingEnabled,
         ObsExecutablePath = ObsExecutablePath,
         ObsConfigRoot = ObsConfigRoot,
@@ -111,14 +83,9 @@ public sealed class AppSettings
         ObsWebSocketPort = ObsWebSocketPort,
         RecordingStopDelaySeconds = RecordingStopDelaySeconds,
         ReplayBufferSeconds = ReplayBufferSeconds,
-        RecordingHealthAlertsEnabled = RecordingHealthAlertsEnabled,
-        RecordingHealthSoundEnabled = RecordingHealthSoundEnabled,
-        RecordingHealthStallSeconds = RecordingHealthStallSeconds,
         OrganiseCapturesByGameAndDate = OrganiseCapturesByGameAndDate,
         LowStorageWarningsEnabled = LowStorageWarningsEnabled,
         LowStorageThresholdGiB = LowStorageThresholdGiB,
-        CleanupSuggestionAgeDays = CleanupSuggestionAgeDays,
-        CleanupSuggestionBudgetGiB = CleanupSuggestionBudgetGiB,
         VibranceEnabled = VibranceEnabled,
         DesktopVibrance = DesktopVibrance,
         GameVibrance = GameVibrance,
@@ -132,22 +99,8 @@ public sealed class AppSettings
         GamingPowerPlan = GamingPowerPlan,
         ShowNotifications = ShowNotifications,
         PresentMonPath = PresentMonPath,
-        OverlayShowCpu = OverlayShowCpu,
-        OverlayShowGpu = OverlayShowGpu,
-        OverlayShowFps = OverlayShowFps,
-        OverlayShowLatency = OverlayShowLatency,
-        OverlayOpacity = OverlayOpacity,
-        OverlayLeft = OverlayLeft,
-        OverlayTop = OverlayTop,
-        OverlayClickThrough = OverlayClickThrough,
-        OverlayHotkey = OverlayHotkey,
         SaveClipHotkey = SaveClipHotkey,
         StutterMarkerHotkey = StutterMarkerHotkey,
-        RollingDiagnosticsEnabled = RollingDiagnosticsEnabled,
-        RollingBeforeSeconds = RollingBeforeSeconds,
-        RollingAfterSeconds = RollingAfterSeconds,
-        RollingHotkey = RollingHotkey,
-        BookmarkHotkey = BookmarkHotkey,
         DetectEpicGames = DetectEpicGames,
         DetectGogGames = DetectGogGames,
         DetectEaGames = DetectEaGames,
@@ -155,8 +108,7 @@ public sealed class AppSettings
         DetectXboxGames = DetectXboxGames,
         OpenRecordingsAfterStop = OpenRecordingsAfterStop,
         CloseAppsOnGameLaunch = CloseAppsOnGameLaunch,
-        AppsToCloseOnGameLaunch = new ObservableCollection<string>(AppsToCloseOnGameLaunch.Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim())),
-        LastOverlayGamePath = LastOverlayGamePath
+        AppsToCloseOnGameLaunch = new ObservableCollection<string>(AppsToCloseOnGameLaunch.Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim()))
     };
 }
 
@@ -164,32 +116,27 @@ public sealed class GameRule
 {
     public string Name { get; set; } = "";
     public string ExecutablePath { get; set; } = "";
-    /// <summary>Additional exact executable paths for this game. ExecutablePath remains its identity.</summary>
-    public ObservableCollection<string> ExecutableAliases { get; set; } = [];
     public bool Record { get; set; } = true;
     /// <summary>Null preserves the legacy Steam highlight setting for WARDOGS.</summary>
     public bool? SteamAutoHighlights { get; set; }
-    /// <summary>Null inherits from the selected profile or global recording default.</summary>
+    /// <summary>Null inherits the global recording default.</summary>
     public CaptureMode? CaptureMode { get; set; }
     public bool UseVibrance { get; set; } = true;
     /// <summary>null = use global game vibrance.</summary>
     public int? VibrancePercent { get; set; }
-    /// <summary>null = use global gaming plan / all-Steam behavior; Guid.Empty = follow global behavior.</summary>
+    /// <summary>null = use global gaming plan; Guid.Empty = follow global behavior.</summary>
     public Guid? PowerPlanId { get; set; }
     /// <summary>null = use global recording stop delay.</summary>
     public int? RecordingStopDelaySeconds { get; set; }
-    public Guid? ProfileId { get; set; }
     public string? RecordingDirectory { get; set; }
     public int? ReplayBufferSeconds { get; set; }
-    public OverlayPreset? OverlayPreset { get; set; }
-    /// <summary>Additional matching: "path" (default), "name", or "folder".</summary>
+    /// <summary>Matching mode: "path" (default), "name", or "folder".</summary>
     public string MatchMode { get; set; } = "path";
 
     public GameRule Copy() => new()
     {
         Name = Name,
         ExecutablePath = ExecutablePath,
-        ExecutableAliases = new ObservableCollection<string>(ExecutableAliases ?? []),
         Record = Record,
         SteamAutoHighlights = SteamAutoHighlights,
         CaptureMode = CaptureMode,
@@ -197,10 +144,8 @@ public sealed class GameRule
         VibrancePercent = VibrancePercent,
         PowerPlanId = PowerPlanId,
         RecordingStopDelaySeconds = RecordingStopDelaySeconds,
-        ProfileId = ProfileId,
         RecordingDirectory = RecordingDirectory,
         ReplayBufferSeconds = ReplayBufferSeconds,
-        OverlayPreset = OverlayPreset,
         MatchMode = MatchMode
     };
 }
@@ -235,27 +180,5 @@ public static class ExecutablePathRules
     }
 }
 
-public enum CaptureMode { Recording, Replay, Both, WardogsHighlights }
+public enum CaptureMode { Recording, Replay, Both }
 public enum VibranceTargetMode { AllDisplays, SelectedDisplay, GameWindowDisplay }
-public enum OverlayPreset { Minimal, Fps, Full }
-
-/// <summary>A reusable set of optional values. Null fields inherit global settings.</summary>
-public sealed class GameProfile
-{
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public string Name { get; set; } = "";
-    public CaptureMode? CaptureMode { get; set; }
-    public string? RecordingDirectory { get; set; }
-    public int? ReplayBufferSeconds { get; set; }
-    public int? RecordingStopDelaySeconds { get; set; }
-    public int? VibrancePercent { get; set; }
-    public Guid? PowerPlanId { get; set; }
-    public OverlayPreset? OverlayPreset { get; set; }
-
-    public GameProfile Copy() => new()
-    {
-        Id = Id, Name = Name, CaptureMode = CaptureMode, RecordingDirectory = RecordingDirectory,
-        ReplayBufferSeconds = ReplayBufferSeconds, RecordingStopDelaySeconds = RecordingStopDelaySeconds,
-        VibrancePercent = VibrancePercent, PowerPlanId = PowerPlanId, OverlayPreset = OverlayPreset
-    };
-}

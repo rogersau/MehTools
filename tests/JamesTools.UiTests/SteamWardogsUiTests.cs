@@ -51,7 +51,7 @@ internal static class SteamWardogsUiTests
         settings.Save(new AppSettings
         {
             Games = [new() { Name = "WARDOGS", ExecutablePath = @"C:\Synthetic\wardogs.exe" }],
-            ObsWebSocketPort = 52348, SaveClipHotkey = "", BookmarkHotkey = "", RollingHotkey = "", StutterMarkerHotkey = ""
+            ObsWebSocketPort = 52348, SaveClipHotkey = "", StutterMarkerHotkey = ""
         });
         var main = (MainWindow)Activator.CreateInstance(typeof(MainWindow), Members, null, [settings.DirectoryPath], null)!;
         Offscreen(main);

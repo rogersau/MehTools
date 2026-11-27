@@ -139,7 +139,7 @@ public sealed class ObsRecorder : IDisposable
     internal static IReadOnlyList<string> BuildCaptureArguments(CaptureMode mode) => mode switch
     {
         CaptureMode.Recording => ["--startrecording"],
-        CaptureMode.Replay or CaptureMode.WardogsHighlights => ["--startreplaybuffer"],
+        CaptureMode.Replay => ["--startreplaybuffer"],
         CaptureMode.Both => ["--startrecording", "--startreplaybuffer"],
         _ => throw new ArgumentOutOfRangeException(nameof(mode), "Choose recording, replay, or both for capture mode.")
     };

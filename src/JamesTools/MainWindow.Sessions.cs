@@ -30,9 +30,9 @@ public partial class MainWindow
             }
             else if (SessionsList.SelectedItem is SessionListEntry selected &&
                      _sessionStore.Get(selected.Session.Id) is { Status: SessionStatus.Active } active)
-                SessionDetailDuration.Text = $"Detected session time: {FormatSessionDuration(active.DetectedDuration)}";
+                SessionDetailDuration.Text = $"Session time: {FormatSessionDuration(active.DetectedDuration)}";
             if (SessionsStatus is not null && string.IsNullOrEmpty(SessionsSearch.Text))
-                SessionsStatus.Text = $"{_sessionStore.Snapshot().Count} session(s). Duration is detected session time.";
+                SessionsStatus.Text = $"{_sessionStore.Snapshot().Count} session(s).";
         }
         catch (Exception ex)
         {
@@ -46,7 +46,7 @@ public partial class MainWindow
         if (_sessionStore is null)
         {
             SessionsList.ItemsSource = Array.Empty<SessionListEntry>();
-            if (SessionsStatus is not null) SessionsStatus.Text = "Session history is unavailable. The existing history file was preserved.";
+            if (SessionsStatus is not null) SessionsStatus.Text = "Session history is unavailable.";
             return;
         }
         var selectedId = (SessionsList.SelectedItem as SessionListEntry)?.Session.Id;
@@ -74,29 +74,25 @@ public partial class MainWindow
         }
         if (SessionsList.SelectedItem is null) ShowSessionDetails(null);
         if (SessionsStatus is not null && entries.Length == 0)
-            SessionsStatus.Text = sessions.Count == 0 ? "No sessions yet. Start watching to track configured games." : "No sessions match this search.";
+            SessionsStatus.Text = sessions.Count == 0 ? "No sessions yet. Start watching to track your games." : "No sessions match this search.";
     }
 
     private void SessionsSearch_TextChanged(object sender, TextChangedEventArgs e) => RefreshSessionList();
 
-    private void SessionsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
+    private void SessionsList_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         ShowSessionDetails((SessionsList.SelectedItem as SessionListEntry)?.Session);
-    }
 
     private void ShowSessionDetails(GameSession? session)
     {
-        SessionDetailsCard.Visibility = SessionFilesCard.Visibility = ShowUnassignedMomentsButton.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
-        SessionMomentsTitle.Text = session is null ? "Unassigned moments" : "Saved moments";
+        SessionDetailsCard.Visibility = SessionFilesCard.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
         SessionDetailGame.Text = session?.GameName ?? "Select a session";
         SessionDetailWhen.Text = session is null ? "" : $"Started {session.StartedUtc.ToLocalTime():f}" +
             (session.EndedUtc is DateTime end ? $" · ended {end.ToLocalTime():f}" : "");
-        SessionDetailDuration.Text = session is null ? "" : $"Detected session time: {FormatSessionDuration(session.DetectedDuration)}";
+        SessionDetailDuration.Text = session is null ? "" : $"Session time: {FormatSessionDuration(session.DetectedDuration)}";
         SessionDetailStatus.Text = session?.Status.ToString() ?? "";
         SessionSteamHighlightsButton.Visibility = session is not null && SteamWardogsLibrary.IsHistoricalWardogsSession(session)
             ? Visibility.Visible : Visibility.Collapsed;
         _ = ShowSessionSteamKdAsync(session);
-        _ = ShowSessionWardogsMoneyAsync(session);
         SessionNotes.Text = session?.Notes ?? "";
         SessionFavourite.IsChecked = session?.Favourite ?? false;
         SessionAttachments.ItemsSource = session?.Attachments.OrderByDescending(a => a.ObservedUtc)
@@ -104,7 +100,6 @@ public partial class MainWindow
         SessionAttachments.Visibility = SessionAttachments.HasItems ? Visibility.Visible : Visibility.Collapsed;
         CompareSessionButton.IsEnabled = session is not null && FindCurrentReport(session) is not null && _sessionStore?.FindPreviousReport(session) is not null;
         UpdateSessionFileButtons();
-        RefreshBookmarks();
     }
 
     private void SaveSessionDetails_Click(object sender, RoutedEventArgs e)
@@ -125,13 +120,11 @@ public partial class MainWindow
     {
         var attachment = (SessionAttachments?.SelectedItem as AttachmentListEntry)?.Attachment;
         var exists = attachment is not null && File.Exists(attachment.Path);
-        bool video = attachment?.Kind is SessionAttachmentKind.Recording or SessionAttachmentKind.Clip;
         if (OpenSessionFileButton is not null) OpenSessionFileButton.IsEnabled = exists;
         if (ShowSessionFileButton is not null) ShowSessionFileButton.IsEnabled = exists;
         if (ViewSessionReportButton is not null) ViewSessionReportButton.IsEnabled = exists && attachment!.Kind == SessionAttachmentKind.PerformanceReport;
-        if (ReviewSessionScanButton is not null) ReviewSessionScanButton.IsEnabled = video;
-        if (ScanSessionFileButton is not null) ScanSessionFileButton.IsEnabled = exists && video;
-        if (SessionFileActions is not null) SessionFileActions.Visibility = exists || video || CompareSessionButton?.IsEnabled == true ? Visibility.Visible : Visibility.Collapsed;
+        if (CopySessionReportButton is not null) CopySessionReportButton.IsEnabled = exists && attachment!.Kind == SessionAttachmentKind.PerformanceReport;
+        if (SessionFileActions is not null) SessionFileActions.Visibility = exists || CompareSessionButton?.IsEnabled == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void AttachSessionFile_Click(object sender, RoutedEventArgs e)
@@ -144,8 +137,8 @@ public partial class MainWindow
         const string videos = "*.mp4;*.mkv;*.mov;*.avi;*.webm;*.m4v;*.flv;*.ts";
         var picker = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Attach an existing recording, clip, or report",
-            Filter = $"Recordings and reports|{videos};*.txt;*.md|Replay clips (protected from cleanup)|{videos}|Performance reports|*.txt;*.md|All files (*.*)|*.*"
+            Title = "Attach a recording, clip, or report",
+            Filter = $"Recordings and reports|{videos};*.txt;*.md|Clips|{videos}|Performance reports|*.txt;*.md|All files (*.*)|*.*"
         };
         if (picker.ShowDialog(this) != true) return;
         try
@@ -155,38 +148,31 @@ public partial class MainWindow
                 : SessionAttachmentKind.Recording;
             _sessionStore.AttachExplicitly(selected.Session.Id, kind, picker.FileName, DateTime.UtcNow);
             RefreshSessionList();
-            SessionsStatus.Text = "File attached. The library stores a reference and leaves the file in place.";
+            SessionsStatus.Text = "File attached.";
         }
         catch (Exception ex) { SessionsStatus.Text = "Couldn't attach file: " + ex.Message; }
     }
 
-    private void OpenSessionFile_Click(object sender, RoutedEventArgs e)
-    {
-        if (SessionAttachments.SelectedItem is not AttachmentListEntry entry) return;
-        var id = (SessionsList.SelectedItem as SessionListEntry)?.Session.Id;
-        if (entry.Attachment.Kind is SessionAttachmentKind.Recording or SessionAttachmentKind.Clip)
-        {
-            try { OpenMediaReview(entry.Attachment.Path, TimeSpan.Zero, id); }
-            catch (Exception ex) { SessionsStatus.Text = "Couldn't open recording: " + ex.Message; }
-        }
-        else RunWithSelectedAttachment(path => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }));
-    }
-    private void OpenMediaReview(string path, TimeSpan position, Guid? sessionId) => OpenMediaReview(path, position, sessionId, false);
-    private void OpenMediaReview(string path, TimeSpan position, Guid? sessionId, bool lockSource, string? toolsFolder = null)
-    {
-        var guard = lockSource ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read) : null;
-        try { var window = new RecordingPlaybackWindow(path, position, toolsFolder ?? _appliedSettings.MediaToolsFolder,
-            target => { if (_sessionStore is null) throw new IOException("Clip published, but session history is unavailable; attach it manually later."); _sessionStore.AddAttachment(sessionId, "Unassigned clip", "", SessionAttachmentKind.Clip, target, DateTime.UtcNow); RefreshSessionList(); },
-            folder => { var saved = _appliedSettings.Snapshot(); saved.MediaToolsFolder = folder; _store.Save(saved); _settings.MediaToolsFolder = folder; _appliedSettings.MediaToolsFolder = folder; }) { Owner = this }; window.Closed += (_, _) => guard?.Dispose(); window.Show(); } catch { guard?.Dispose(); throw; }
-    }
+    private void OpenSessionFile_Click(object sender, RoutedEventArgs e) =>
+        RunWithSelectedAttachment(path => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }));
 
     private void ShowSessionFile_Click(object sender, RoutedEventArgs e) => RunWithSelectedAttachment(path =>
         Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }));
 
     private void ViewSessionReport_Click(object sender, RoutedEventArgs e)
     {
-        if (SessionAttachments.SelectedItem is AttachmentListEntry { Attachment.Kind: SessionAttachmentKind.PerformanceReport } entry)
+        if (SessionAttachments.SelectedItem is AttachmentListEntry { Attachment.Kind: SessionAttachmentKind.PerformanceReport })
             RunWithSelectedAttachment(path => ShowReportTimeline(File.ReadAllText(path), Path.GetFileName(path)));
+    }
+
+    private void CopySessionReportForAi_Click(object sender, RoutedEventArgs e)
+    {
+        if (SessionAttachments.SelectedItem is AttachmentListEntry { Attachment.Kind: SessionAttachmentKind.PerformanceReport })
+            RunWithSelectedAttachment(path =>
+            {
+                System.Windows.Clipboard.SetText(File.ReadAllText(path));
+                SessionsStatus.Text = "Performance report copied to clipboard — ready to paste into an AI chat.";
+            });
     }
 
     private void RunWithSelectedAttachment(Action<string> action)
@@ -194,7 +180,7 @@ public partial class MainWindow
         if (SessionAttachments.SelectedItem is not AttachmentListEntry entry) return;
         try
         {
-            if (!File.Exists(entry.Attachment.Path)) throw new FileNotFoundException("This attachment is missing from its saved location.", entry.Attachment.Path);
+            if (!File.Exists(entry.Attachment.Path)) throw new FileNotFoundException("File is missing from its saved location.", entry.Attachment.Path);
             action(entry.Attachment.Path);
         }
         catch (Exception ex) { SessionsStatus.Text = "Couldn't open attachment: " + ex.Message; }
@@ -211,7 +197,7 @@ public partial class MainWindow
                 .OrderByDescending(a => a.ObservedUtc).FirstOrDefault();
             if (current is null || baseline is null)
             {
-                SessionsStatus.Text = "No earlier same-game session has an available performance report to compare.";
+                SessionsStatus.Text = "No earlier same-game session has a performance report to compare.";
                 return;
             }
             var output = Path.Combine(_dataDirectory, $"Meh-Tools-comparison-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt");

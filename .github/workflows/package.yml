@@ -17,35 +17,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Cache pinned media tools
-        id: native-tools
-        uses: actions/cache@v4
-        with:
-          path: |
-            third_party/native-tools/win-x64
-            artifacts/MehTools-native-sources.zip
-          key: ${{ runner.os }}-native-tools-${{ hashFiles('third_party/native-tools/manifest.json', 'third_party/native-tools/README.md', 'scripts/Prepare-NativeTools.ps1', 'scripts/build-native-tools.sh') }}
-      - name: Build pinned media tools
-        if: steps.native-tools.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: ./scripts/Prepare-NativeTools.ps1
       - name: Test
         run: dotnet run --project tests/JamesTools.Tests -c Release
-      - name: WPF layout and close regression checks
+      - name: UI tests
         run: dotnet run --project tests/JamesTools.UiTests -c Release
       - name: Publish self-contained app
         run: dotnet publish src/JamesTools/JamesTools.csproj -c Release -r win-x64 --self-contained true -p:DebugType=None -o artifacts/publish
-      - name: Validate MCP server before packaging
-        run: |
-          dotnet run --project tests/JamesTools.Mcp.BackendTests -c Release
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          dotnet run --project tests/JamesTools.Mcp.SessionTests -c Release
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          dotnet run --project tests/JamesTools.Mcp.Tests -c Release
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          if (!(Test-Path artifacts/publish/tools/mcp/MehTools.Mcp.exe)) { throw 'Published MCP server is missing.' }
-      - name: Verify published media tools and Windows OCR
-        run: dotnet run --project tests/JamesTools.UiTests -c Release -- --bundled-tools artifacts/publish
       - name: Read app version
         id: version
         run: |
@@ -74,4 +51,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
-        run: gh release create "$env:GITHUB_REF_NAME" --title "Meh Tools $env:GITHUB_REF_NAME" --generate-notes "artifacts/MehTools-$env:VERSION-win-x64.zip" "artifacts/installer/MehTools-setup-$env:VERSION-win-x64.exe" "artifacts/MehTools-native-sources.zip"
+        run: gh release create "$env:GITHUB_REF_NAME" --title "Meh Tools $env:GITHUB_REF_NAME" --generate-notes "artifacts/MehTools-$env:VERSION-win-x64.zip" "artifacts/installer/MehTools-setup-$env:VERSION-win-x64.exe"

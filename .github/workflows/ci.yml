@@ -16,34 +16,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Cache pinned media tools
-        id: native-tools
-        uses: actions/cache@v4
-        with:
-          path: |
-            third_party/native-tools/win-x64
-            artifacts/MehTools-native-sources.zip
-          key: ${{ runner.os }}-native-tools-${{ hashFiles('third_party/native-tools/manifest.json', 'third_party/native-tools/README.md', 'scripts/Prepare-NativeTools.ps1', 'scripts/build-native-tools.sh') }}
-      - name: Build pinned media tools
-        if: steps.native-tools.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: ./scripts/Prepare-NativeTools.ps1
       - name: Build
         run: dotnet build JamesTools.sln --configuration Release
       - name: Test
         run: dotnet run --project tests/JamesTools.Tests --configuration Release --no-build
-      - name: WPF layout and close regression checks
+      - name: UI tests
         run: dotnet run --project tests/JamesTools.UiTests --configuration Release --no-build
-      - name: MCP backend, sessions, protocol and security tests
-        run: |
-          dotnet run --project tests/JamesTools.Mcp.BackendTests -c Release --no-build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          dotnet run --project tests/JamesTools.Mcp.SessionTests -c Release --no-build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          dotnet run --project tests/JamesTools.Mcp.Tests -c Release --no-build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Publish and verify bundled tools
-        run: |
-          dotnet publish src/JamesTools/JamesTools.csproj -c Release -r win-x64 --self-contained true -p:DebugType=None -o artifacts/publish
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          dotnet run --project tests/JamesTools.UiTests -c Release --no-build -- --bundled-tools artifacts/publish
+      - name: Publish
+        run: dotnet publish src/JamesTools/JamesTools.csproj -c Release -r win-x64 --self-contained true -p:DebugType=None -o artifacts/publish

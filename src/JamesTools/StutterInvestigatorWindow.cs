@@ -30,6 +30,7 @@ public sealed class StutterInvestigatorWindow : Window
     private readonly TextBox conditions = new() { MinWidth = 250, MaxLength = 2000, ToolTip = "Scene, workload and settings held constant" };
     private readonly TextBox change = new() { MinWidth = 260, MaxLength = 1000, ToolTip = "The one configuration change you made between recordings" };
     private readonly Button start = new() { Content = "Start recording" }, stop = new() { Content = "Stop and analyse" };
+    private readonly Button copyForAi = new() { Content = "Copy for AI" };
     private readonly Button export = new() { Content = "Export report…" };
     private readonly Button compare = new() { Content = "Compare with baseline" };
     private readonly StackPanel results = new();
@@ -66,11 +67,13 @@ public sealed class StutterInvestigatorWindow : Window
         var controls = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) }; content.Children.Add(controls);
         start.Style = (Style)FindResource("AccentButton");
         stop.Style = start.Style;
-        controls.Children.Add(start); controls.Children.Add(stop); controls.Children.Add(export);
+        copyForAi.Style = start.Style;
+        controls.Children.Add(start); controls.Children.Add(stop); controls.Children.Add(copyForAi); controls.Children.Add(export);
         var openReport = AddButton(controls, "Open report…", (_, _) => OpenReport(false));
         openReport.SetBinding(VisibilityProperty, new System.Windows.Data.Binding(nameof(Visibility)) { Source = start });
         start.Click += async (_, _) => await StartAsync();
         stop.Click += async (_, _) => await StopAsync();
+        copyForAi.Click += (_, _) => CopyForAi();
         export.Click += (_, _) => Export();
         content.Children.Add(status);
 
@@ -195,7 +198,7 @@ public sealed class StutterInvestigatorWindow : Window
         start.Visibility = idle ? Visibility.Visible : Visibility.Collapsed;
         stop.Visibility = idle ? Visibility.Collapsed : Visibility.Visible;
         conditions.IsEnabled = idle; change.IsEnabled = idle;
-        export.Visibility = idle && report is not null ? Visibility.Visible : Visibility.Collapsed;
+        copyForAi.Visibility = export.Visibility = idle && report is not null ? Visibility.Visible : Visibility.Collapsed;
         compare.Visibility = idle && report is not null && baseline is not null ? Visibility.Visible : Visibility.Collapsed;
         results.Visibility = logger is not null || report is not null ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -279,6 +282,20 @@ public sealed class StutterInvestigatorWindow : Window
         details.Text = comparison.Conclusion + "\n\n" + string.Join("\n", comparison.MetricDeltas.Select(d => $"{d.Metric}: {d.Before:F2} → {d.After:F2} {d.Unit}")) + "\n\n" + string.Join("\n", comparison.Limitations);
         technical.Text = JsonSerializer.Serialize(comparison, new JsonSerializerOptions { WriteIndented = true });
         status.Text = "Before/after comparison. Workload differences and unmeasured evidence limit the conclusion.";
+    }
+    private void CopyForAi()
+    {
+        if (report is null) return;
+        try
+        {
+            var text = performanceReport ?? InvestigationReportWriter.ToText(report);
+            if (comparison is not null)
+                text += "\n\n## Controlled comparison\n" + comparison.Conclusion + "\n" +
+                    string.Join("\n", comparison.MetricDeltas.Select(d => $"- {d.Metric}: {d.Before:F2} → {d.After:F2} {d.Unit}")) + "\n" + string.Join("\n", comparison.Limitations);
+            System.Windows.Clipboard.SetText(text);
+            status.Text = "Report copied to clipboard — ready to paste into an AI chat.";
+        }
+        catch (Exception ex) { status.Text = "Couldn't copy report: " + ex.Message; }
     }
     private void Export()
     {

@@ -54,7 +54,7 @@ public partial class MainWindow
 
     private async void StartPerformance_Click(object sender, RoutedEventArgs e)
     {
-        if (_benchmarkBusy || _performanceBusy || _performanceLogger is not null) return;
+        if (_performanceBusy || _performanceLogger is not null) return;
         if (!string.IsNullOrWhiteSpace(_baselineReportPath) && string.IsNullOrWhiteSpace(PerformanceSetup.Text))
         {
             PerformanceStatus.Text = "Record the retest game settings and test scene before starting.";
@@ -119,6 +119,7 @@ public partial class MainWindow
             _performanceReportPath = null;
             PerformanceReportActions.Visibility = Visibility.Collapsed;
             SavePerformanceButton.IsEnabled = false;
+            CopyPerformanceForAiButton.IsEnabled = false;
             ViewPerformanceReportButton.IsEnabled = false;
             CompareCurrentBaselineButton.IsEnabled = false;
             PerformanceGame.IsEnabled = false;
@@ -132,6 +133,7 @@ public partial class MainWindow
             StopPerformanceButton.Visibility = Visibility.Visible;
             PerformanceMarkerOptions.Visibility = Visibility.Visible;
             StopPerformanceButton.IsEnabled = true;
+            UpdateTrayMenuText();
             PerformanceTimer_Tick(null, EventArgs.Empty);
         }
         catch (Exception ex)
@@ -171,7 +173,9 @@ public partial class MainWindow
             _performanceReport = report;
             FinishPerformanceDiagnosticSession();
             SavePerformanceButton.IsEnabled = true;
+            CopyPerformanceForAiButton.IsEnabled = true;
             ViewPerformanceReportButton.IsEnabled = true;
+            UpdateTrayMenuText();
             CompareCurrentBaselineButton.IsEnabled = !string.IsNullOrWhiteSpace(_baselineReportPath);
             StartPerformanceButton.IsEnabled = true;
             PerformanceGame.IsEnabled = true;
@@ -247,7 +251,6 @@ public partial class MainWindow
 
     private async Task<bool> PreparePerformanceForExitAsync()
     {
-        if (_benchmarkWindow != null) await _benchmarkWindow.CancelForExitAsync();
         if (_performanceBusy) return false;
         if (_performanceLogger is not null)
         {
@@ -284,6 +287,18 @@ public partial class MainWindow
     private void ViewPerformanceReport_Click(object sender, RoutedEventArgs e)
     {
         if (_performanceReport is not null) ShowReportTimeline(_performanceReport, "Current performance report");
+    }
+
+    private void CopyPerformanceForAi_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_performanceReport)) return;
+        try
+        {
+            System.Windows.Clipboard.SetText(_performanceReport);
+            PerformanceStatus.Text = "Report copied to clipboard — ready to paste into an AI chat.";
+            StatusNotice.Text = "Performance report copied to clipboard.";
+        }
+        catch (Exception ex) { PerformanceStatus.Text = "Couldn't copy report: " + ex.Message; }
     }
 
     private void OpenPerformanceReport_Click(object sender, RoutedEventArgs e)

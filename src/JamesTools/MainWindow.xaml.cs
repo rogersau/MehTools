@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Threading;
 using JamesTools.Core.Automation;
 using JamesTools.Core.Configuration;
 using JamesTools.Core.Diagnostics;
@@ -24,15 +26,17 @@ public partial class MainWindow : Window
     private SessionLibraryStore? _sessionStore;
     private SessionTracker? _sessionTracker;
     private readonly Forms.NotifyIcon _tray;
+    private readonly Forms.ToolStripMenuItem _trayWatchItem;
+    private readonly Forms.ToolStripMenuItem _trayPerfItem;
+    private readonly DispatcherTimer _autoSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
+    private bool _initializing = true;
     private bool _exiting;
     private bool _saving;
     private bool _minimizeTipShown;
     private readonly HashSet<string> _activeGamePaths = new(StringComparer.OrdinalIgnoreCase);
     public System.Collections.ObjectModel.ObservableCollection<PowerPlanOption> GamePowerPlanOptions { get; } = [];
-    public System.Collections.ObjectModel.ObservableCollection<GameProfileAssignmentOption> GameProfileAssignmentOptions { get; } = [];
     public IReadOnlyList<GameValueOption<CaptureMode>> CaptureModeOptions { get; } =
-        [new(null, "Inherit (Recording default)"), new(CaptureMode.Recording, "Recording"), new(CaptureMode.Replay, "Replay"),
-         new(CaptureMode.Both, "Both"), new(CaptureMode.WardogsHighlights, "WARDOGS highlights")];
+        [new(null, "Default (Recording)"), new(CaptureMode.Recording, "Recording"), new(CaptureMode.Replay, "Replay"), new(CaptureMode.Both, "Both")];
     public IReadOnlyList<GameValueOption<VibranceTargetMode>> VibranceTargetOptions { get; } =
         [new(VibranceTargetMode.AllDisplays, "All displays"), new(VibranceTargetMode.SelectedDisplay, "Selected display"), new(VibranceTargetMode.GameWindowDisplay, "Game window display")];
     public System.Collections.ObjectModel.ObservableCollection<VibranceDisplayOption> VibranceDisplayOptions { get; } = [];
@@ -83,7 +87,6 @@ public partial class MainWindow : Window
         }
         DataContext = _settings;
         RefreshVibranceDisplays();
-        RefreshGameProfileOptions();
         InitializeRecordingPanel();
         UpdateObsSetupStatus();
         if (MatchModeColumn is not null) MatchModeColumn.ItemsSource = new[] { "path", "name", "folder" };
@@ -98,25 +101,100 @@ public partial class MainWindow : Window
             ContextMenuStrip = new Forms.ContextMenuStrip()
         };
         _tray.ContextMenuStrip.Items.Add("Open Meh Tools", null, (_, _) => Dispatcher.Invoke(ShowFromTray));
-        _tray.ContextMenuStrip.Items.Add(_settings.AutomationEnabled ? "Stop watching" : "Start watching", null, (_, _) => Dispatcher.Invoke(() => ToggleAutomation_Click(this, new RoutedEventArgs())));
+        _trayWatchItem = new Forms.ToolStripMenuItem(_settings.AutomationEnabled ? "Stop watching" : "Start watching", null, (_, _) => Dispatcher.Invoke(() => ToggleAutomation_Click(this, new RoutedEventArgs())));
+        _tray.ContextMenuStrip.Items.Add(_trayWatchItem);
+        _tray.ContextMenuStrip.Items.Add(new Forms.ToolStripSeparator());
+        _trayPerfItem = new Forms.ToolStripMenuItem("Start performance log", null, (_, _) => Dispatcher.Invoke(() =>
+        {
+            if (_performanceLogger is null) StartPerformance_Click(this, new RoutedEventArgs());
+            else StopPerformance_Click(this, new RoutedEventArgs());
+        }));
+        _tray.ContextMenuStrip.Items.Add(_trayPerfItem);
+        _tray.ContextMenuStrip.Items.Add("Save OBS clip", null, (_, _) => Dispatcher.Invoke(() => _ = SaveClipAsync(true)));
+        _tray.ContextMenuStrip.Items.Add("Steam highlights…", null, (_, _) => Dispatcher.Invoke(() => { ShowFromTray(); SteamWardogs_Click(this, new RoutedEventArgs()); }));
+        _tray.ContextMenuStrip.Items.Add(new Forms.ToolStripSeparator());
         _tray.ContextMenuStrip.Items.Add("Quit", null, (_, _) => Dispatcher.Invoke(() => _ = ExitAsync()));
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
 
         _appliedSettings = _settings.Snapshot();
         ApplySteamHighlightSettings();
-        ApplyRecordingHealthSettings();
         _automation = new AutomationService(_appliedSettings, _dataDirectory);
-        _automation.RecordingLifecycleChanged += AutomationRecordingLifecycleChanged;
         _automation.StatusChanged += status => Dispatcher.BeginInvoke(() => ShowStatus(status));
         _automation.Activity += message => Dispatcher.BeginInvoke(() => AddActivity(message));
         _automation.Notify += notification => Dispatcher.BeginInvoke(() => ShowTrayNotification(notification));
-        InitializeWardogsBackground();
         _automation.Start();
         RefreshSessionList();
-        SourceInitialized += (_, _) => { ApplySaveClipHotkey(); ApplyStutterMarkerHotkey(); ApplyBookmarkHotkey(); ApplyRollingHotkey(); };
+        SourceInitialized += (_, _) => { ApplySaveClipHotkey(); ApplyStutterMarkerHotkey(); };
         AddActivity(initialMessage ?? (_settings.Games.Count == 0 ? "Add a game to get started." : "Ready."));
         if (initialMessage is not null) StatusNotice.Text = initialMessage;
+
+        // Debounced auto-save whenever any setting control changes.
+        _autoSaveTimer.Tick += (_, _) => { _autoSaveTimer.Stop(); SaveSettings(silent: true); };
+        AddHandler(ToggleButton.CheckedEvent, new RoutedEventHandler(OnSettingControlChanged));
+        AddHandler(ToggleButton.UncheckedEvent, new RoutedEventHandler(OnSettingControlChanged));
+        AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new TextChangedEventHandler(OnSettingControlChanged));
+        AddHandler(Selector.SelectionChangedEvent, new SelectionChangedEventHandler(OnSettingControlChanged));
+        AddHandler(RangeBase.ValueChangedEvent, new RoutedPropertyChangedEventHandler<double>(OnSettingControlChanged));
+        _initializing = false;
+
         _ = Dispatcher.InvokeAsync(ResumeSavedObsConnectionAsync);
+    }
+
+    private void OnSettingControlChanged(object sender, RoutedEventArgs e)
+    {
+        if (_initializing || _exiting || _saving) return;
+        if (e.OriginalSource is DependencyObject src && IsNonSettingControl(src)) return;
+        ScheduleAutoSave();
+    }
+
+    private bool IsNonSettingControl(DependencyObject source)
+    {
+        for (var cur = source; cur is not null; cur = LogicalTreeHelper.GetParent(cur))
+        {
+            if (cur == Navigation || cur == Pages || cur == SessionsList || cur == SessionsSearch ||
+                cur == SessionNotes || cur == SessionFavourite || cur == SessionAttachments ||
+                cur == PerformanceSetup || cur == PerformanceNotes || cur == MarkerNoteBox ||
+                cur == RetestChangeBox || cur == PerformanceGame || cur == RecordingStorageTarget ||
+                cur == ObsWebSocketPasswordBox || cur == ObsRememberPasswordBox ||
+                cur == ActivityList)
+                return true;
+            if (cur is Expander) return true;
+        }
+        return false;
+    }
+
+    private void ScheduleAutoSave()
+    {
+        if (_initializing || _exiting || _saving) return;
+        SetSaveBadge("Saving…", warning: false);
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Start();
+    }
+
+    private void SetSaveBadge(string? text, bool warning)
+    {
+        if (SaveStateBadge is null || SaveStatePill is null) return;
+        if (string.IsNullOrEmpty(text))
+        {
+            SaveStatePill.Visibility = Visibility.Collapsed;
+            return;
+        }
+        SaveStateBadge.Text = text;
+        SaveStateBadge.Foreground = new System.Windows.Media.SolidColorBrush(warning
+            ? System.Windows.Media.Color.FromRgb(0xE8, 0xB0, 0x5C)
+            : System.Windows.Media.Color.FromRgb(0x8A, 0xE1, 0xC3));
+        SaveStatePill.Visibility = Visibility.Visible;
+    }
+
+    private void UpdateStatusDot(string headline)
+    {
+        if (SidebarStatusDot is null) return;
+        var color = headline is "Needs attention" or "OBS still open"
+            ? System.Windows.Media.Color.FromRgb(0xE8, 0xB0, 0x5C)
+            : headline is "Off" or "Loading…"
+                ? System.Windows.Media.Color.FromRgb(0x6F, 0x80, 0x8A)
+                : System.Windows.Media.Color.FromRgb(0x8A, 0xE1, 0xC3);
+        SidebarStatusDot.Fill = new System.Windows.Media.SolidColorBrush(color);
     }
 
     public void ShowFromTray()
@@ -127,8 +205,7 @@ public partial class MainWindow : Window
         Activate();
     }
 
-
-    private void GameGrid_LoadingRow(object? sender, System.Windows.Controls.DataGridRowEventArgs e) => ApplyGameRowState(e.Row);
+    private void GameGrid_LoadingRow(object? sender, DataGridRowEventArgs e) => ApplyGameRowState(e.Row);
 
     private void ApplyGameRowState(DataGridRow row)
     {
@@ -140,7 +217,6 @@ public partial class MainWindow : Window
         }
         else
         {
-            // Rows are recycled, so remove the highlight instead of leaving it on a different game.
             row.ClearValue(System.Windows.Controls.Control.BackgroundProperty);
             row.ClearValue(System.Windows.Controls.Control.ForegroundProperty);
             row.ClearValue(System.Windows.Controls.Control.FontWeightProperty);
@@ -151,21 +227,15 @@ public partial class MainWindow : Window
     {
         if (_exiting) return;
         UpdateDetectedSessions(status);
-        UpdateRolling(status);
         StatusGame.Text = status.Game;
         StatusRecording.Text = status.Recording;
         StatusVibrance.Text = status.Vibrance;
         StatusPower.Text = status.Power;
         OverviewHeadline.Text = status.Headline;
         SidebarStatus.Text = status.Headline;
+        UpdateStatusDot(status.Headline);
         _activeGamePaths.Clear();
         if (status.ActiveGamePaths is not null) foreach (var p in status.ActiveGamePaths) _activeGamePaths.Add(p);
-        if (_wardogsGameDetected != status.BackgroundOcrGameDetected)
-        {
-            _wardogsGameDetected = status.BackgroundOcrGameDetected;
-            UpdateWardogsBackground();
-        }
-        // Update visible rows in place. Refreshing the collection interrupts cell editing.
         if (GameGrid is not null)
         {
             for (var i = 0; i < GameGrid.Items.Count; i++)
@@ -180,8 +250,10 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_tray?.ContextMenuStrip?.Items.Count >= 2)
-                _tray.ContextMenuStrip.Items[1].Text = _settings.AutomationEnabled ? "Stop watching" : "Start watching";
+            if (_trayWatchItem is not null)
+                _trayWatchItem.Text = _settings.AutomationEnabled ? "Stop watching" : "Start watching";
+            if (_trayPerfItem is not null)
+                _trayPerfItem.Text = _performanceLogger is not null ? "Stop & save performance log" : "Start performance log";
         }
         catch { }
     }
@@ -206,17 +278,36 @@ public partial class MainWindow : Window
         if (Pages is null || Navigation.SelectedIndex < 0) return;
         Pages.SelectedIndex = Navigation.SelectedIndex;
         PageTitle.Text = (Pages.SelectedItem as TabItem)?.Header.ToString();
+        if (SettingsNavButton is not null) SettingsNavButton.Background = System.Windows.Media.Brushes.Transparent;
     }
 
-    private void Save_Click(object sender, RoutedEventArgs e) => SaveSettings();
+    private void SettingsNav_Click(object sender, RoutedEventArgs e)
+    {
+        if (Pages is null) return;
+        Navigation.SelectedIndex = -1;
+        Pages.SelectedIndex = Pages.Items.Count - 1;
+        PageTitle.Text = "Settings";
+        SettingsNavButton.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x29, 0x3C, 0x43));
+    }
 
-    private bool SaveSettings()
+    private void Save_Click(object sender, RoutedEventArgs e) => SaveSettings(silent: false);
+
+    private bool SaveSettings(bool silent = false)
     {
         if (_saving) return false;
+        _autoSaveTimer.Stop();
         _saving = true;
         try
         {
-            if (!TryApplyPendingSettings(out var problem)) throw new InvalidOperationException(problem);
+            if (!TryApplyPendingSettings(out var problem, revealInvalid: !silent))
+            {
+                if (silent)
+                {
+                    SetSaveBadge("Check fields", warning: true);
+                    return false;
+                }
+                throw new InvalidOperationException(problem);
+            }
 
             var oldStartup = StartupManager.ReadCommand();
             var newStartup = _settings.StartWithWindows ? StartupManager.CurrentCommand() : null;
@@ -231,66 +322,46 @@ public partial class MainWindow : Window
             _automation.UpdateSettings(_settings);
             _appliedSettings = _settings.Snapshot();
             ApplySteamHighlightSettings();
-            WardogsBackgroundOption.IsChecked = _appliedSettings.BackgroundWardogsOcr;
-            UpdateWardogsBackground();
-            ApplyRecordingHealthSettings();
             RefreshRecordingStorageTargets();
             _ = RefreshStorageVisibilityAsync();
             UpdateAutomationButton();
             UpdateObsSetupStatus();
-            StatusNotice.Text = "Settings saved.";
             ApplySaveClipHotkey();
             ApplyStutterMarkerHotkey();
-            ApplyBookmarkHotkey(); ApplyRollingHotkey();
-            AddActivity("Settings saved.");
+            SetSaveBadge("Saved", warning: false);
+            if (!silent)
+            {
+                StatusNotice.Text = "Settings saved.";
+                AddActivity("Settings saved.");
+            }
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Security.SecurityException or ArgumentException)
         {
-            MessageBox.Show(this, ex.Message, "Couldn't save settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+            SetSaveBadge("Not saved", warning: true);
+            if (!silent) MessageBox.Show(this, ex.Message, "Couldn't save settings", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
         finally { _saving = false; }
     }
 
-    private void GameProfiles_Click(object sender, RoutedEventArgs e)
-    {
-        if (!TryCommitGameGridEdits(out var problem))
-        {
-            MessageBox.Show(this, problem, "Check game settings", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-        var editor = new GameProfilesEditorWindow(_settings.Profiles, GamePowerPlanOptions, _settings.Games) { Owner = this };
-        if (editor.ShowDialog() != true) return;
-        _settings.Profiles.Clear();
-        foreach (var profile in editor.Profiles) _settings.Profiles.Add(profile.Copy());
-        RefreshGameProfileOptions();
-        var selected = GameGrid.SelectedItem as GameRule;
-        DataContext = null; DataContext = _settings;
-        if (selected is not null) GameGrid.SelectedItem = selected;
-        RefreshEffectiveOptionsSummary();
-    }
-
-    private void RefreshGameProfileOptions()
-    {
-        GameProfileAssignmentOptions.Clear();
-        GameProfileAssignmentOptions.Add(new(null, "Inherit global defaults"));
-        foreach (var profile in _settings.Profiles)
-            GameProfileAssignmentOptions.Add(new(profile.Id, profile.Name));
-    }
-
     private void GameOverrideChanged(object sender, RoutedEventArgs e)
-        => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.DataBind, new Action(RefreshEffectiveOptionsSummary));
+        => Dispatcher.BeginInvoke(DispatcherPriority.DataBind, new Action(RefreshEffectiveOptionsSummary));
 
     private void GameGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         RefreshEffectiveOptionsSummary();
         RefreshGameSteamHighlights();
-        InvalidateDetectionPreview();
     }
 
-    private void GameGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e) =>
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.DataBind, new Action(RefreshGameSteamHighlights));
+    private void GameGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
+    {
+        Dispatcher.BeginInvoke(DispatcherPriority.DataBind, new Action(() =>
+        {
+            RefreshGameSteamHighlights();
+            ScheduleAutoSave();
+        }));
+    }
 
     private void GameObsCapture_Click(object sender, RoutedEventArgs e)
     {
@@ -314,10 +385,9 @@ public partial class MainWindow : Window
             }
             box.GetBindingExpression(System.Windows.Controls.CheckBox.IsCheckedProperty)?.UpdateSource();
             RefreshEffectiveOptionsSummary();
-            InvalidateDetectionPreview();
             UpdateObsSetupStatus();
-            StatusNotice.Text = rule is null ? "Save settings to apply capture for this new or renamed game path."
-                : $"Automatic OBS capture {(enabled ? "enabled" : "disabled")} for {game.Name}.";
+            StatusNotice.Text = $"Automatic OBS capture {(enabled ? "enabled" : "disabled")} for {game.Name}.";
+            ScheduleAutoSave();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.Security.SecurityException)
         {
@@ -335,57 +405,51 @@ public partial class MainWindow : Window
         }
         var options = EffectiveGameOptionsResolver.Resolve(_settings, game);
         var powerName = GamePowerPlanOptions.FirstOrDefault(option => option.Id == options.PowerPlanId)?.Name ?? options.PowerPlanId.ToString();
-        EffectiveOptionsSummary.Text = $"{options.CaptureMode}; folder: {options.RecordingDirectory}; replay: {options.ReplayBufferSeconds}s; stop delay: {options.RecordingStopDelaySeconds}s; vibrance: {options.VibrancePercent}%; power: {powerName}.\nRecord permission: {OnOff(options.Record)}; colour permission: {OnOff(options.UseVibrance)}.";
+        EffectiveOptionsSummary.Text = $"Effective: {options.CaptureMode} · folder: {options.RecordingDirectory} · replay: {options.ReplayBufferSeconds}s · stop delay: {options.RecordingStopDelaySeconds}s · vibrance: {options.VibrancePercent}% · power: {powerName}";
     }
 
-    private static string OnOff(bool value) => value ? "on" : "off";
-
-    private bool TryApplyPendingSettings(out string problem, bool validateSetup = true)
+    private bool TryApplyPendingSettings(out string problem, bool validateSetup = true, bool revealInvalid = true)
     {
         problem = "";
-        if (!TryCommitGameGridEdits(out problem)) return false;
+        if (!TryCommitGameGridEdits(out problem, revealInvalid)) return false;
         if (FindInvalidGameEditor(this) is System.Windows.Controls.TextBox invalidEditor)
         {
-            Navigation.SelectedIndex = 1;
-            for (var parent = LogicalTreeHelper.GetParent(invalidEditor); parent is not null; parent = LogicalTreeHelper.GetParent(parent))
-                if (parent is Expander expander) expander.IsExpanded = true;
-            invalidEditor.BringIntoView();
-            invalidEditor.Focus();
-            invalidEditor.SelectAll();
+            if (revealInvalid)
+            {
+                Navigation.SelectedIndex = 1;
+                for (var parent = LogicalTreeHelper.GetParent(invalidEditor); parent is not null; parent = LogicalTreeHelper.GetParent(parent))
+                    if (parent is Expander expander) expander.IsExpanded = true;
+                invalidEditor.BringIntoView();
+                invalidEditor.Focus();
+                invalidEditor.SelectAll();
+            }
             problem = "Check the highlighted game value. Enter a whole number, or leave it blank to use the default.";
             return false;
         }
-        if (!TryReadWholeNumber(StopDelayBox, "the wait time before stopping", 0, 120, out var stopDelay, out problem)) return false;
-        if (!TryReadWholeNumber(ReplayBufferSecondsBox, "the replay buffer length", 15, 600, out var replayBufferSeconds, out problem)) return false;
-        if (!TryReadWholeNumber(RecordingHealthStallSecondsBox, "the recording health stall threshold", 10, 300, out var healthStallSeconds, out problem)) return false;
-        if (!TryReadWholeNumber(SteamBeforeBox, "the Steam seconds before each event", 0, SteamHighlightSettings.MaxPaddingSeconds, out var steamBefore, out problem)) return false;
-        if (!TryReadWholeNumber(SteamAfterBox, "the Steam seconds after each event", 0, SteamHighlightSettings.MaxPaddingSeconds, out var steamAfter, out problem)) return false;
+        if (!TryReadWholeNumber(StopDelayBox, "the wait time before stopping", 0, 120, out var stopDelay, out problem, revealInvalid)) return false;
+        if (!TryReadWholeNumber(ReplayBufferSecondsBox, "the replay buffer length", 15, 600, out var replayBufferSeconds, out problem, revealInvalid)) return false;
+        if (!TryReadWholeNumber(SteamBeforeBox, "the Steam seconds before each event", 0, SteamHighlightSettings.MaxPaddingSeconds, out var steamBefore, out problem, revealInvalid)) return false;
+        if (!TryReadWholeNumber(SteamAfterBox, "the Steam seconds after each event", 0, SteamHighlightSettings.MaxPaddingSeconds, out var steamAfter, out problem, revealInvalid)) return false;
         if (!SteamHighlightSettings.ValidPadding(steamBefore, steamAfter))
         {
-            RevealEditor(SteamAfterBox);
+            if (revealInvalid) RevealEditor(SteamAfterBox);
             problem = "Choose at least one second before or after each Steam event.";
             return false;
         }
         _settings.SteamHighlights.BeforeSeconds = steamBefore;
         _settings.SteamHighlights.AfterSeconds = steamAfter;
-        if (!TryReadWholeNumber(RollingBeforeSecondsBox, "the pre-trigger capture interval", 10, 300, out var rollingBefore, out problem)) return false;
-        if (!TryReadWholeNumber(RollingAfterSecondsBox, "the post-trigger capture interval", 0, 60, out var rollingAfter, out problem)) return false;
-        if (!TryReadWholeNumber(PollSecondsBox, "the check interval", 2, 30, out var poll, out problem)) return false;
+        if (!TryReadWholeNumber(PollSecondsBox, "the check interval", 2, 30, out var poll, out problem, revealInvalid)) return false;
         _settings.RecordingStopDelaySeconds = stopDelay;
         _settings.ReplayBufferSeconds = replayBufferSeconds;
-        _settings.RecordingHealthStallSeconds = healthStallSeconds;
-        _settings.RollingBeforeSeconds = rollingBefore;
-        _settings.RollingAfterSeconds = rollingAfter;
         _settings.PollSeconds = poll;
         SyncAppsToCloseFromBox();
-        try { JamesTools.Core.Diagnostics.NetworkProbeOptions.Create(_settings.NetworkDiagnosticsEnabled, _settings.NetworkTargets); }
+        try { NetworkProbeOptions.Create(_settings.NetworkDiagnosticsEnabled, _settings.NetworkTargets); }
         catch (ArgumentException ex) { problem = ex.Message; return false; }
-        // A backup is useful even while machine-specific setup is incomplete.
         if (!validateSetup) return true;
         var errors = SettingsValidation.Validate(_settings);
         if (errors.Count > 0)
         {
-            if (UpdateObsSetupStatus() && _settings.RecordingEnabled)
+            if (revealInvalid && UpdateObsSetupStatus() && _settings.RecordingEnabled)
             {
                 Navigation.SelectedIndex = 2;
                 ObsSetupOptions.IsExpanded = true;
@@ -405,24 +469,24 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private bool TryCommitGameGridEdits(out string problem)
+    private bool TryCommitGameGridEdits(out string problem, bool focusOnFailure = true)
     {
         problem = "";
         if (GameGrid.CommitEdit(DataGridEditingUnit.Cell, true) &&
             GameGrid.CommitEdit(DataGridEditingUnit.Row, true))
             return true;
-        FocusGameGridEditor();
+        if (focusOnFailure) FocusGameGridEditor();
         problem = "Check the highlighted game value. Enter a whole number, or leave the cell blank to use the default.";
         return false;
     }
 
-    private bool TryReadWholeNumber(System.Windows.Controls.TextBox box, string label, int min, int max, out int value, out string problem)
+    private bool TryReadWholeNumber(System.Windows.Controls.TextBox box, string label, int min, int max, out int value, out string problem, bool reveal = true)
     {
         problem = "";
         if (!int.TryParse(box.Text?.Trim(), out value) || value < min || value > max)
         {
             value = 0;
-            RevealEditor(box);
+            if (reveal) RevealEditor(box);
             problem = $"Enter a whole number from {min} to {max} for {label}.";
             return false;
         }
@@ -436,7 +500,9 @@ public partial class MainWindow : Window
             if (parent is Expander expander) expander.IsExpanded = true;
             if (parent is TabItem page)
             {
-                Navigation.SelectedIndex = Pages.Items.IndexOf(page);
+                var idx = Pages.Items.IndexOf(page);
+                if (idx == Pages.Items.Count - 1) SettingsNav_Click(this, new RoutedEventArgs());
+                else Navigation.SelectedIndex = idx;
                 break;
             }
         }
@@ -506,7 +572,7 @@ public partial class MainWindow : Window
     {
         if (AppsToCloseBox is null) return;
         var items = AppsToCloseBox.Text
-            .Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries)
+            .Split(["\r\n", "\n", "\r"], StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Trim())
             .Where(s => s.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -519,34 +585,34 @@ public partial class MainWindow : Window
     {
         if (_appliedSettings.AutomationEnabled)
         {
-            // Stopping must work even if an unrelated unsaved field is invalid.
             var paused = _appliedSettings.Snapshot();
             paused.AutomationEnabled = false;
             _automation.UpdateSettings(paused);
             _appliedSettings = paused;
-            InvalidateRolling();
             _settings.AutomationEnabled = false;
             UpdateAutomationButton();
-            StatusNotice.Text = "Watching stopped. Click Save to keep any other changes.";
+            StatusNotice.Text = "Watching stopped.";
             AddActivity("Watching stopped.");
             try { _store.Save(paused); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
-                StatusNotice.Text = "Watching stopped for this session. Couldn't save the watching state: " + ex.Message;
+                StatusNotice.Text = "Watching stopped for this session. Couldn't save state: " + ex.Message;
             }
             return;
         }
         var previous = _settings.AutomationEnabled;
         _settings.AutomationEnabled = !previous;
-        if (!SaveSettings()) _settings.AutomationEnabled = previous;
+        if (!SaveSettings(silent: false)) _settings.AutomationEnabled = previous;
         UpdateAutomationButton();
     }
 
     private void UpdateAutomationButton()
     {
         AutomationButton.Content = _settings.AutomationEnabled ? "Stop watching" : "Start watching";
-        OverviewHeadline.Text = _settings.AutomationEnabled ? "Watching for games" : "Off";
-        SidebarStatus.Text = _settings.AutomationEnabled ? "Watching for games" : "Off";
+        var headline = _settings.AutomationEnabled ? "Watching for games" : "Off";
+        OverviewHeadline.Text = headline;
+        SidebarStatus.Text = headline;
+        UpdateStatusDot(headline);
         UpdateTrayMenuText();
     }
 
@@ -577,7 +643,6 @@ public partial class MainWindow : Window
                 var catalog = LibraryGameDetector.Discover(options);
                 var processes = ProcessSnapshot.Capture().Where(p => p.FullPath is not null).ToArray();
                 var running = LibraryGameDetector.FindRunning(catalog, processes);
-                // Prefer the actual running process path within matched roots.
                 var list = new List<RunningGameChoice>();
                 foreach (var game in running)
                 {
@@ -635,6 +700,7 @@ public partial class MainWindow : Window
             return;
         }
         _settings.Games.Add(new GameRule { Name = name, ExecutablePath = path });
+        ScheduleAutoSave();
     }
 
     private sealed record RunningGameChoice(string Name, string Path)
@@ -644,7 +710,11 @@ public partial class MainWindow : Window
 
     private void RemoveGame_Click(object sender, RoutedEventArgs e)
     {
-        if (GameGrid.SelectedItem is GameRule game) _settings.Games.Remove(game);
+        if (GameGrid.SelectedItem is GameRule game)
+        {
+            _settings.Games.Remove(game);
+            ScheduleAutoSave();
+        }
     }
 
     private void BrowseObs_Click(object sender, RoutedEventArgs e)
@@ -655,6 +725,7 @@ public partial class MainWindow : Window
             SetObsExecutable(picker.FileName, ObsDiscovery.FromExecutable(picker.FileName));
             DataContext = null; DataContext = _settings;
             UpdateObsSetupStatus();
+            ScheduleAutoSave();
         }
     }
 
@@ -687,7 +758,7 @@ public partial class MainWindow : Window
         OpenVideosButton.IsEnabled = Directory.Exists(_settings.RecordingDirectory);
         bool hasProgram = File.Exists(_settings.ObsExecutablePath);
         bool hasConfig = Directory.Exists(_settings.ObsConfigRoot);
-        if (_settings.RecordingEnabled && hasProgram && !hasConfig) ObsConfigOptions.IsExpanded = true;
+        if (_settings.RecordingEnabled && hasProgram && !hasConfig) ObsSetupOptions.IsExpanded = true;
         string? missing = !hasProgram ? "Choose the OBS program."
             : !hasConfig ? "Choose the OBS settings folder."
             : _settings.Games.Any(game => game.Record && !Directory.Exists(EffectiveGameOptionsResolver.Resolve(_settings, game).RecordingDirectory))
@@ -696,7 +767,7 @@ public partial class MainWindow : Window
         ObsSetupStatus.Text = !_settings.RecordingEnabled ? "Enable capture here and for the games you want to record."
             : missing ?? (_settings.Games.Any(game => game.Record)
                 ? "Close OBS before playing so Meh Tools can start it automatically."
-                : "Enable Capture for a game on the Games page.");
+                : "Enable OBS Capture for a game on the Games page.");
         return missing is not null;
     }
 
@@ -715,15 +786,26 @@ public partial class MainWindow : Window
     private void BrowseObsConfig_Click(object sender, RoutedEventArgs e)
     {
         var picker = new Microsoft.Win32.OpenFolderDialog { Title = "Choose the OBS settings folder" };
-        if (picker.ShowDialog(this) == true) { _settings.ObsConfigRoot = picker.FolderName; DataContext = null; DataContext = _settings; UpdateObsSetupStatus(); }
+        if (picker.ShowDialog(this) == true)
+        {
+            _settings.ObsConfigRoot = picker.FolderName;
+            DataContext = null; DataContext = _settings;
+            UpdateObsSetupStatus();
+            ScheduleAutoSave();
+        }
     }
 
     private void BrowseRecordingFolder_Click(object sender, RoutedEventArgs e)
     {
         var picker = new Microsoft.Win32.OpenFolderDialog { Title = "Choose where to save videos" };
-        if (picker.ShowDialog(this) == true) { _settings.RecordingDirectory = picker.FolderName; DataContext = null; DataContext = _settings; UpdateObsSetupStatus(); }
+        if (picker.ShowDialog(this) == true)
+        {
+            _settings.RecordingDirectory = picker.FolderName;
+            DataContext = null; DataContext = _settings;
+            UpdateObsSetupStatus();
+            ScheduleAutoSave();
+        }
     }
-
 
     private void RefreshVibranceDisplays_Click(object sender, RoutedEventArgs e) => RefreshVibranceDisplays();
 
@@ -740,7 +822,7 @@ public partial class MainWindow : Window
             {
                 var windowsName = windows.TryGetValue(identity, out var screen) ? screen.DeviceName : identity;
                 var suffix = windowsName.StartsWith(@"\\.\DISPLAY", StringComparison.OrdinalIgnoreCase) ? windowsName[@"\\.\DISPLAY".Length..] : "";
-                var label = int.TryParse(suffix, out var number) ? $"Windows display {number} ({windowsName})" : $"Windows display ({windowsName})";
+                var label = int.TryParse(suffix, out var number) ? $"Display {number} ({windowsName})" : $"Display ({windowsName})";
                 VibranceDisplayOptions.Add(new(identity, $"{label} — NVIDIA"));
             }
         }
@@ -764,17 +846,19 @@ public partial class MainWindow : Window
             try { using var nv = new NvidiaVibrance(); var d = nv.Read(); lines.Add($"Colours (NVIDIA): OK ({d.Count} display(s))"); } catch (Exception ex) { lines.Add("Colours (NVIDIA): " + ex.Message); }
             try { var plans = PowerPlans.List(); lines.Add($"Power plans: OK ({plans.Count} plan(s))"); } catch (Exception ex) { lines.Add("Power plans: " + ex.Message); }
             var pmResolved = PresentMonLocator.Resolve(_settings.PresentMonPath);
-            var pm = pmResolved is not null ? (string.IsNullOrWhiteSpace(_settings.PresentMonPath) ? "bundled/found" : "found") : "not found (optional; bundled copy missing)";
+            var pm = pmResolved is not null ? (string.IsNullOrWhiteSpace(_settings.PresentMonPath) ? "bundled/found" : "found") : "not found";
             lines.Add("PresentMon: " + pm + (pmResolved is not null ? $" ({Path.GetFileName(pmResolved)})" : ""));
             try { lines.Add("HDR active now: " + (HdrStatus.IsHdrActive() ? "yes" : "no/unknown")); } catch { lines.Add("HDR active now: unknown"); }
             HealthSummary.Text = string.Join(Environment.NewLine, lines);
         }
-        catch (Exception ex) { HealthSummary.Text = "Couldn't check health: " + ex.Message; }
+        catch (Exception ex) { HealthSummary.Text = "Couldn't check setup: " + ex.Message; }
     }
+
     private string RecordingFolderForHealth()
         => _settings.Games.Where(game => game.Record)
             .Select(game => EffectiveGameOptionsResolver.Resolve(_settings, game).RecordingDirectory)
             .FirstOrDefault(Directory.Exists) ?? _settings.RecordingDirectory;
+
     private void OpenRecordings_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -790,7 +874,7 @@ public partial class MainWindow : Window
         try
         {
             var running = Process.GetProcessesByName("obs64");
-            try { if (running.Length > 0) throw new InvalidOperationException("OBS is already open. Close it so Meh Tools can start it when a game begins."); }
+            try { if (running.Length > 0) throw new InvalidOperationException("OBS is already open."); }
             finally { foreach (var process in running) process.Dispose(); }
             if (!File.Exists(_settings.ObsExecutablePath)) throw new FileNotFoundException("Choose the OBS program first.");
             var start = new ProcessStartInfo(_settings.ObsExecutablePath)
@@ -800,7 +884,7 @@ public partial class MainWindow : Window
             };
             if (_settings.ObsPortable) start.ArgumentList.Add("--portable");
             Process.Start(start);
-            StatusNotice.Text = "Close OBS when you're done so Meh Tools can open it for games.";
+            StatusNotice.Text = "Close OBS when you're done so Meh Tools can start it automatically for games.";
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Couldn't open OBS", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
@@ -816,13 +900,12 @@ public partial class MainWindow : Window
     private void Window_StateChanged(object? sender, EventArgs e)
     {
         if (_exiting || !_settings.TrayOnMinimize || WindowState != WindowState.Minimized) return;
-        WindowState = WindowState.Normal; // Reopening from the tray should show a normal window, not a restored taskbar one.
+        WindowState = WindowState.Normal;
         Hide();
         if (_minimizeTipShown) return;
         _minimizeTipShown = true;
-        _tray.ShowBalloonTip(2500, "Meh Tools", "Still running in the notification area. Double-click the tray icon to reopen it.", Forms.ToolTipIcon.Info);
+        _tray.ShowBalloonTip(2500, "Meh Tools", "Running in the tray. Double-click the icon to reopen.", Forms.ToolTipIcon.Info);
     }
-
 
     private void TestObs_Click(object sender, RoutedEventArgs e)
     {
@@ -831,7 +914,7 @@ public partial class MainWindow : Window
             var result = ObsValidation.Validate(_settings.ObsExecutablePath, _settings.ObsConfigRoot, RecordingFolderForHealth(), _settings.ObsPortable);
             var msg = string.Join(Environment.NewLine, result.Info.Concat(result.Issues.Select(i => "Issue: " + i)));
             if (result.Ok)
-                MessageBox.Show(this, (msg.Length == 0 ? "OBS configuration looks valid." : msg) + "\n\nClose OBS before managed capture so Meh Tools can update its configuration.", "OBS setup check", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, msg.Length == 0 ? "OBS configuration looks valid." : msg, "OBS setup check", MessageBoxButton.OK, MessageBoxImage.Information);
             else
                 MessageBox.Show(this, msg.Length == 0 ? "OBS validation failed." : msg, "OBS setup check", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
@@ -848,7 +931,7 @@ public partial class MainWindow : Window
             var msg = $"NVIDIA vibrance available on {displays.Count} display(s). Current: {current}.";
             if (_appliedSettings.AutomationEnabled)
             {
-                msg += "\n\nStop watching before apply-and-revert tests to avoid conflicts with automation.";
+                msg += "\n\nStop watching first to run an apply-and-revert test.";
                 MessageBox.Show(this, msg, "Colour test", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -859,10 +942,10 @@ public partial class MainWindow : Window
                 targets.Any(d => string.IsNullOrWhiteSpace(d.DeviceName)) ||
                 targets.Select(d => d.DeviceName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != targets.Length)
             {
-                MessageBox.Show(this, msg + "\n\nApply-and-revert requires All displays with known identities, or an available Selected display. Game-window targeting is checked during watching.", "Colour test", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, msg, "Colour test", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            if (MessageBox.Show(this, msg + $"\n\nBriefly apply the global game vibrance level to {targets.Length} targeted display(s), then restore each original value?", "Colour test", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            if (MessageBox.Show(this, msg + $"\n\nBriefly apply game vibrance to {targets.Length} display(s) and revert?", "Colour test", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 var attempted = new List<VibranceDisplay>();
                 var failures = new List<string>();
@@ -873,7 +956,7 @@ public partial class MainWindow : Window
                         attempted.Add(display);
                         nvidia.SetDisplay(display.DeviceName!, Math.Clamp(_settings.GameVibrance, 0, 100));
                     }
-                    System.Threading.Thread.Sleep(400);
+                    Thread.Sleep(400);
                 }
                 catch (Exception ex) { failures.Add(ex.Message); }
                 finally
@@ -902,14 +985,14 @@ public partial class MainWindow : Window
             var msg = $"Active power plan: {name}. {plans.Count} plan(s) available.";
             if (_settings.AutomationEnabled)
             {
-                msg += "\n\nStop watching before apply-and-revert tests to avoid conflicts with automation.";
+                msg += "\n\nStop watching first to run a switch-and-revert test.";
                 MessageBox.Show(this, msg, "Power plan test", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            if (_settings.GamingPowerPlan != Guid.Empty && MessageBox.Show(this, msg + "\n\nBriefly switch to the gaming plan and revert to test control?", "Power plan test", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            if (_settings.GamingPowerPlan != Guid.Empty && MessageBox.Show(this, msg + "\n\nBriefly switch to the gaming plan and revert?", "Power plan test", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
             {
                 var original = active;
-                try { PowerPlans.SetActive(_settings.GamingPowerPlan); System.Threading.Thread.Sleep(400); }
+                try { PowerPlans.SetActive(_settings.GamingPowerPlan); Thread.Sleep(400); }
                 finally { try { PowerPlans.SetActive(original); } catch { } }
                 MessageBox.Show(this, "Switched and reverted power plan successfully.", "Power plan test", MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -917,7 +1000,6 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Power plan test", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
-
 
     private void ExportSettings_Click(object sender, RoutedEventArgs e)
     {
@@ -939,9 +1021,7 @@ public partial class MainWindow : Window
             var picker = new Microsoft.Win32.OpenFileDialog { Title = "Import settings", Filter = "Settings JSON (*.json)|*.json|All files (*.*)|*.*" };
             if (picker.ShowDialog(this) != true) return;
             var loaded = _store.Deserialize(File.ReadAllText(picker.FileName));
-            var profileIssues = SettingsValidation.Validate(loaded).Where(error => error.Contains("profile", StringComparison.OrdinalIgnoreCase)).ToArray();
             ApplyImportedSettings(loaded);
-            RefreshGameProfileOptions();
             DataContext = null; DataContext = _settings;
             if (MatchModeColumn is not null) MatchModeColumn.ItemsSource = new[] { "path", "name", "folder" };
             SyncAppsToCloseBox();
@@ -949,27 +1029,22 @@ public partial class MainWindow : Window
             _ = RefreshStorageVisibilityAsync();
             UpdateAutomationButton();
             UpdateObsSetupStatus();
-            var message = "Settings imported. Review paths and click Save to keep them.";
-            if (profileIssues.Length > 0) message += "\n\nProfile issues need attention before saving:\n" + string.Join("\n", profileIssues);
-            MessageBox.Show(this, message, "Import", MessageBoxButton.OK,
-                profileIssues.Length > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+            ScheduleAutoSave();
+            MessageBox.Show(this, "Settings imported. Review paths if this backup came from another PC.", "Import", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "Couldn't import settings", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
 
     private void ApplyImportedSettings(AppSettings imported)
     {
-        // Keep the live collections so bindings stay attached, and copy their contents separately.
         foreach (var prop in typeof(AppSettings).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
         {
             if (!prop.CanRead || !prop.CanWrite) continue;
-            if (prop.Name is nameof(AppSettings.Games) or nameof(AppSettings.Profiles) or nameof(AppSettings.AppsToCloseOnGameLaunch) or nameof(AppSettings.AutomationEnabled)) continue;
+            if (prop.Name is nameof(AppSettings.Games) or nameof(AppSettings.AppsToCloseOnGameLaunch) or nameof(AppSettings.AutomationEnabled)) continue;
             prop.SetValue(_settings, prop.GetValue(imported));
         }
         _settings.Games.Clear();
         foreach (var game in imported.Games) _settings.Games.Add(game.Copy());
-        _settings.Profiles.Clear();
-        foreach (var profile in imported.Profiles) _settings.Profiles.Add(profile.Copy());
         _settings.AppsToCloseOnGameLaunch.Clear();
         foreach (var app in imported.AppsToCloseOnGameLaunch) _settings.AppsToCloseOnGameLaunch.Add(app);
     }
@@ -996,13 +1071,11 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(text)) return;
             if (!TryParseHotkey(text, out var mod, out var key) || mod == 0)
             {
-                StatusNotice.Text = "Save clip hotkey is invalid. Use a key with a modifier, such as Ctrl+Alt+F10, or leave it blank.";
+                StatusNotice.Text = "Save clip hotkey is invalid. Use a modifier + key like Ctrl+Alt+F10, or leave blank.";
                 return;
             }
             if (!RegisterHotKey(hwnd, SaveClipHotkeyId, mod | MOD_NOREPEAT, key))
-            {
-                StatusNotice.Text = "Save clip hotkey could not be registered; it may be invalid or already in use.";
-            }
+                StatusNotice.Text = "Save clip hotkey could not be registered (already in use).";
         }
         catch (Exception ex) { StatusNotice.Text = "Save clip hotkey error: " + ex.Message; }
     }
@@ -1019,33 +1092,12 @@ public partial class MainWindow : Window
             var text = _settings.StutterMarkerHotkey ?? "";
             if (string.IsNullOrWhiteSpace(text)) return;
             if (!TryParseHotkey(text, out var mod, out var key) || mod == 0)
-            { StatusNotice.Text = "Stutter marker hotkey is invalid. Use a key with a modifier, such as Ctrl+Alt+F9, or leave it blank."; return; }
+            { StatusNotice.Text = "Stutter marker hotkey is invalid. Use a modifier + key like Ctrl+Alt+F9, or leave blank."; return; }
             if (!RegisterHotKey(hwnd, StutterMarkerHotkeyId, mod | MOD_NOREPEAT, key))
-                StatusNotice.Text = "Stutter marker hotkey could not be registered; it conflicts with another hotkey or application.";
+                StatusNotice.Text = "Stutter marker hotkey could not be registered (already in use).";
         }
         catch (Exception ex) { StatusNotice.Text = "Stutter marker hotkey error: " + ex.Message; }
     }
-
-    private void ApplyBookmarkHotkey()
-    {
-        try
-        {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            if (hwnd == IntPtr.Zero) return;
-            UnregisterHotKey(hwnd, BookmarkHotkeyId);
-            _hwndSource ??= System.Windows.Interop.HwndSource.FromHwnd(hwnd);
-            if (_hwndSource is not null) { _hwndSource.RemoveHook(WndProc); _hwndSource.AddHook(WndProc); }
-            var text = _appliedSettings.BookmarkHotkey ?? "";
-            if (string.IsNullOrWhiteSpace(text)) return;
-            if (!TryParseHotkey(text, out var mod, out var key) || mod == 0)
-            { StatusNotice.Text = "Bookmark hotkey is invalid. Use a key with a modifier, such as Ctrl+Alt+F8, or leave it blank."; return; }
-            if (!RegisterHotKey(hwnd, BookmarkHotkeyId, mod | MOD_NOREPEAT, key))
-                StatusNotice.Text = "Bookmark hotkey could not be registered; it conflicts with another hotkey or application.";
-        }
-        catch (Exception ex) { StatusNotice.Text = "Bookmark hotkey error: " + ex.Message; }
-    }
-
-    private const int BookmarkHotkeyId = 0x4A57;
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
@@ -1059,10 +1111,6 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(HandleStutterMarkerHotkey);
             handled = true;
         }
-        else if (msg == WM_HOTKEY && wParam.ToInt32() == RollingHotkeyId)
-        { TriggerRolling(); handled = true; }
-        else if (msg == WM_HOTKEY && wParam.ToInt32() == BookmarkHotkeyId)
-        { Dispatcher.BeginInvoke(() => _ = MarkBookmarkAsync(true)); handled = true; }
         return IntPtr.Zero;
     }
 
@@ -1070,14 +1118,13 @@ public partial class MainWindow : Window
     {
         if (_performanceLogger is null)
         {
-            const string message = "No performance log is active. Open Performance and click Start log before marking a stutter.";
+            const string message = "No performance log is active. Open Performance and click Start log first.";
             StatusNotice.Text = message;
             if (_settings.ShowNotifications && !_exiting) _tray.ShowBalloonTip(3000, "Stutter marker", message, Forms.ToolTipIcon.Info);
             return;
         }
         _performanceLogger.AddMarker("Stutter");
-        const string recorded = "Stutter marker recorded at hotkey time (approximate; it may not be the exact stalled frame).";
-        StatusNotice.Text = recorded;
+        StatusNotice.Text = "Stutter marker added to performance log.";
         if (_settings.ShowNotifications && !_exiting) _tray.ShowBalloonTip(2500, "Stutter marker", "Marker added to the active performance log.", Forms.ToolTipIcon.Info);
     }
 
@@ -1104,23 +1151,18 @@ public partial class MainWindow : Window
             if (c >= 'A' && c <= 'Z') { vk = c; return true; }
             if (c >= '0' && c <= '9') { vk = c; return true; }
         }
-        if (Enum.TryParse<System.Windows.Forms.Keys>(keyPart, true, out var k)) { vk = (uint)k; return vk != 0; }
+        if (Enum.TryParse<Forms.Keys>(keyPart, true, out var k)) { vk = (uint)k; return vk != 0; }
         return false;
     }
+
     private async Task ExitAsync()
     {
         if (_exiting) return;
+        _autoSaveTimer.Stop();
         if (!await PreparePerformanceForExitAsync()) return;
-        if (!CloseConfigSnapshotsForExit()) return;
-        foreach (var playback in OwnedWindows.OfType<RecordingPlaybackWindow>().ToArray()) { await playback.ShutdownAsync(); playback.Close(); }
-        if (_liveWardogsWindow is { } live) { await live.ShutdownAsync(); live.Close(); }
-        var wardogs = _wardogsWindow;
-        if (wardogs is not null) { if (!await wardogs.ShutdownAsync()) { wardogs.Activate(); return; } wardogs.Close(); }
         if (steamWardogsWindow is { } steam) await steam.ShutdownAsync();
         _exiting = true;
         await StopSteamHighlightsAsync();
-        await StopWardogsBackgroundAsync();
-        await StopRollingAsync();
         try { _sessionTracker?.Observe(DateTime.UtcNow, false, Array.Empty<SessionGameObservation>()); }
         catch (Exception ex) { AddActivity("Couldn't finish session history: " + ex.Message); }
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
@@ -1128,8 +1170,6 @@ public partial class MainWindow : Window
         {
             UnregisterHotKey(hwnd, SaveClipHotkeyId);
             UnregisterHotKey(hwnd, StutterMarkerHotkeyId);
-            UnregisterHotKey(hwnd, BookmarkHotkeyId);
-            UnregisterHotKey(hwnd, RollingHotkeyId);
         }
         Hide();
         await DisconnectObsAsync();
@@ -1146,6 +1186,5 @@ public sealed record PowerPlanOption(Guid? Id, string Name)
     public override string ToString() => Name;
 }
 
-public sealed record GameProfileAssignmentOption(Guid? Id, string Name);
 public sealed record GameValueOption<T>(T? Value, string Name) where T : struct, Enum;
 public sealed record VibranceDisplayOption(string DeviceName, string Name);

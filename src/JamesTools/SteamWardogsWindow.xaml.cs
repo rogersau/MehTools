@@ -226,11 +226,9 @@ public partial class SteamWardogsWindow : Window
                 if (closed) return;
                 if (preview)
                 {
-                    var player = new RecordingPlaybackWindow(clip.Path, clip.EventPosition, tools, null, null) { Owner = this };
-                    player.Closed += (_, _) => DeletePreview(path);
-                    player.Show();
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(clip.Path) { UseShellExecute = true });
                     previewOpened = true;
-                    SteamStatus.Text = "Preview opened at the Steam event. No permanent clip saved.";
+                    SteamStatus.Text = "Opened preview clip in your default video player.";
                 }
                 else SteamStatus.Text = $"Saved {clip.Media.Duration:0.#} seconds to {clip.Path}.";
             }
@@ -267,11 +265,6 @@ public partial class SteamWardogsWindow : Window
         lifetime.Cancel();
         if (idle is { } operation) await operation.Task;
         if (closed) return;
-        foreach (var player in OwnedWindows.OfType<RecordingPlaybackWindow>().ToArray())
-        {
-            await player.ShutdownAsync();
-            player.Close();
-        }
         if (!closed) Close();
     }
 

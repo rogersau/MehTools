@@ -18,6 +18,7 @@ public sealed class ActionMenu : Button
     public MenuItem Add(string label, RoutedEventHandler action)
     {
         var item = new MenuItem { Header = label };
+        item.Click += (_, _) => { if (ContextMenu is not null) ContextMenu.IsOpen = false; };
         item.Click += action;
         ContextMenu.Items.Add(item);
         return item;

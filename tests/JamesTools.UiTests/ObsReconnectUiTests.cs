@@ -104,7 +104,7 @@ internal static class ObsReconnectUiTests
     internal static async Task CloseWindowAsync(MainWindow window)
     {
         typeof(MainWindow).GetField("_exiting", Private)!.SetValue(window, true);
-        await (Task)typeof(MainWindow).GetMethod("DisconnectObsAsync", Private)!.Invoke(window, [false, false])!;
+        await (Task)typeof(MainWindow).GetMethod("DisconnectObsAsync", Private)!.Invoke(window, [false])!;
         await ((AutomationService)typeof(MainWindow).GetField("_automation", Private)!.GetValue(window)!).DisposeAsync();
         ((IDisposable)typeof(MainWindow).GetField("_tray", Private)!.GetValue(window)!).Dispose();
         window.Close();

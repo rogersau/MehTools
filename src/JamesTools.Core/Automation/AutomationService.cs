@@ -2,15 +2,11 @@ using System.Text;
 using JamesTools.Core.Configuration;
 using JamesTools.Core.Platform;
 using JamesTools.Core.Recording;
-using JamesTools.Core.Scanning;
 using JamesTools.Core.Storage;
 
 namespace JamesTools.Core.Automation;
 
-public sealed record AutomationStatus(string Game, string Recording, string Vibrance, string Power, string Notice, string Headline, string[] ActiveGamePaths)
-{
-    public bool? BackgroundOcrGameDetected { get; init; }
-}
+public sealed record AutomationStatus(string Game, string Recording, string Vibrance, string Power, string Notice, string Headline, string[] ActiveGamePaths);
 
 public sealed record AutomationNotification(string Title, string Message, bool Warning);
 public sealed record AutomationRecordingLifecycle(long Generation, Guid LaunchId, CaptureMode RequestedMode, bool IsOwned, bool IntentionalStop)
@@ -137,11 +133,7 @@ public sealed class AutomationService : IAsyncDisposable
             _attemptPid = _blockedPid = _failedAttempts = 0;
             _wasGaming = false;
             RestoreManagedSettings(settings);
-            Publish(new("None", "Off", "Off", "Off", "Watching is off.", "Off", Array.Empty<string>())
-            {
-                BackgroundOcrGameDetected = settings.BackgroundWardogsOcr
-                    ? AutomationPolicy.MatchAllGames(settings.Games, _platform.CaptureProcesses()).Count > 0 : null
-            });
+            Publish(new("None", "Off", "Off", "Off", "Watching is off.", "Off", Array.Empty<string>()));
             return;
         }
 
@@ -192,10 +184,7 @@ public sealed class AutomationService : IAsyncDisposable
             : matched.Count > 0 || libraryRunning.Count > 0 ? "Game detected"
             : "Watching";
         var activePaths = matched.Select(m => m.Rule.ExecutablePath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        Publish(new(gameName, recording, vibrance, power, notice.ToString().Trim(), headline, activePaths)
-        {
-            BackgroundOcrGameDetected = settings.BackgroundWardogsOcr ? gamingNow : null
-        });
+        Publish(new(gameName, recording, vibrance, power, notice.ToString().Trim(), headline, activePaths));
     }
 
     private async Task<string> UpdateRecordingAsync(AppSettings settings, IReadOnlyList<MatchedGame> matched, StringBuilder notice)
@@ -285,11 +274,6 @@ public sealed class AutomationService : IAsyncDisposable
         }
         if (_utcNow() < _retryAfter) return "Trying again soon";
         var effective = EffectiveGameOptionsResolver.Resolve(settings, selected.Rule);
-        if (effective.CaptureMode == CaptureMode.WardogsHighlights && !WardogsHighlights.SupportsExecutable(selected.Process.FullPath))
-        {
-            Append(notice, "WARDOGS highlights requires the running WARDOGS game executable. Choose a different capture mode for other games.");
-            return "Needs attention";
-        }
         var folderPlan = RecordingFolderPlanner.Plan(effective.RecordingDirectory, selected.Rule.Name, _utcNow().ToLocalTime(), settings.OrganiseCapturesByGameAndDate);
         if (settings.LowStorageWarningsEnabled)
             await CheckStorageAsync(folderPlan.PlannedDirectory, settings, notice, true);
@@ -331,7 +315,6 @@ public sealed class AutomationService : IAsyncDisposable
                 {
                     CaptureMode.Replay => "replay buffer",
                     CaptureMode.Both => "recording and replay buffer",
-                    CaptureMode.WardogsHighlights => "WARDOGS highlights replay buffer",
                     _ => "recording"
                 };
                 Log($"OBS launched with {requested} requested for {selected.Rule.Name}.");
@@ -561,9 +544,7 @@ public sealed class AutomationService : IAsyncDisposable
             if (match is not null)
             {
                 target = EffectiveGameOptionsResolver.Resolve(settings, match.Rule).PowerPlanId;
-                var customPowerPlan = match.Rule.PowerPlanId is Guid gamePlan
-                    ? gamePlan != Guid.Empty
-                    : match.Rule.ProfileId is Guid profileId && settings.Profiles.FirstOrDefault(p => p.Id == profileId)?.PowerPlanId is Guid profilePlan && profilePlan != Guid.Empty;
+                var customPowerPlan = match.Rule.PowerPlanId is Guid gamePlan && gamePlan != Guid.Empty;
                 if (customPowerPlan)
                     label = match.Rule.Name + " plan";
             }
@@ -738,8 +719,7 @@ public static class AutomationPolicy
 {
     // An exact opt-out must not be bypassed by a broader folder/name rule for the same process.
     public static HashSet<int> RecordingOptOutProcessIds(IEnumerable<MatchedGame> matched)
-        => matched.Where(g => !g.Rule.Record && g.MatchKind is
-                (GameProcessMatchKind.PrimaryPath or GameProcessMatchKind.AliasPath))
+        => matched.Where(g => !g.Rule.Record && g.MatchKind is GameProcessMatchKind.PrimaryPath)
             .Select(g => g.Process.Id).ToHashSet();
 
     public static IReadOnlyList<MatchedGame> MatchGames(IEnumerable<GameRule> rules, IReadOnlyList<RunningProcess> processes)
@@ -797,17 +777,13 @@ public static class AutomationPolicy
         IEnumerable<GameRule>? allRules = null)
     {
         var mode = (rule.MatchMode ?? "path").Trim().ToLowerInvariant();
-        var exe = rule.ExecutablePath ?? "";
-        var aliasPaths = (rule.ExecutableAliases ?? []).Select(ExecutablePathRules.Normalize)
-            .Where(path => path is not null).Cast<string>().ToArray();
-        var evaluated = processes.Select(process => (Process: process, Kind: MatchKind(rule, process, mode, aliasPaths)))
+        var evaluated = processes.Select(process => (Process: process, Kind: MatchKind(rule, process, mode)))
             .OrderBy(item => item.Kind switch
             {
                 GameProcessMatchKind.PrimaryPath => 0,
-                GameProcessMatchKind.AliasPath => 1,
-                GameProcessMatchKind.NameMode => 2,
-                GameProcessMatchKind.FolderMode => 2,
-                _ => 3
+                GameProcessMatchKind.NameMode => 1,
+                GameProcessMatchKind.FolderMode => 1,
+                _ => 2
             })
             .ThenBy(item => item.Process.Id).ToArray();
         var match = evaluated.FirstOrDefault(item => item.Kind is not null);
@@ -831,14 +807,12 @@ public static class AutomationPolicy
         return new GameDetectionEvaluation(rule, mode, matched, relevant, competitors, summary);
     }
 
-    private static GameProcessMatchKind? MatchKind(GameRule rule, RunningProcess process, string mode, IReadOnlyList<string> aliasPaths)
+    private static GameProcessMatchKind? MatchKind(GameRule rule, RunningProcess process, string mode)
     {
         var processPath = ExecutablePathRules.Normalize(process.FullPath);
         var primary = ExecutablePathRules.Normalize(rule.ExecutablePath);
         if (processPath is not null && primary is not null && string.Equals(processPath, primary, StringComparison.OrdinalIgnoreCase))
             return GameProcessMatchKind.PrimaryPath;
-        if (processPath is not null && aliasPaths.Any(alias => string.Equals(processPath, alias, StringComparison.OrdinalIgnoreCase)))
-            return GameProcessMatchKind.AliasPath;
         if (mode == "name")
         {
             var name = Path.GetFileName(rule.ExecutablePath ?? "");
@@ -858,11 +832,9 @@ public static class AutomationPolicy
 
     private static bool IsLikelyCandidate(GameRule rule, RunningProcess process, string mode)
     {
-        var expectedNames = new[] { Path.GetFileName(rule.ExecutablePath ?? "") }
-            .Concat((rule.ExecutableAliases ?? []).Select(Path.GetFileName))
-            .Where(name => !string.IsNullOrWhiteSpace(name));
-        if (expectedNames.Any(name => string.Equals(name, process.Name, StringComparison.OrdinalIgnoreCase) ||
-            (process.FullPath is not null && string.Equals(name, Path.GetFileName(process.FullPath), StringComparison.OrdinalIgnoreCase)))) return true;
+        var expectedName = Path.GetFileName(rule.ExecutablePath ?? "");
+        if (!string.IsNullOrWhiteSpace(expectedName) && (string.Equals(expectedName, process.Name, StringComparison.OrdinalIgnoreCase) ||
+            (process.FullPath is not null && string.Equals(expectedName, Path.GetFileName(process.FullPath), StringComparison.OrdinalIgnoreCase)))) return true;
         if (mode == "folder" && process.FullPath is not null)
         {
             var primary = ExecutablePathRules.Normalize(rule.ExecutablePath);

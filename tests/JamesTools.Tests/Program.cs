@@ -14,7 +14,6 @@ if (args.Contains("--investigation-tests"))
     await InvestigationDeviceTests.Run(); await InvestigationDeepTraceTests.Run();
     Console.WriteLine("PASS all investigation deterministic test groups"); return 0;
 }
-if (args.Contains("--wardogs-montage-integration")) await WardogsExportTests.Integration();
 if (args.Contains("--media-integration")) await MediaTests.Integration();
 if (args is ["--steam-wardogs-smoke", var recordingRoot, var toolsFolder])
 {
@@ -43,32 +42,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("diagnostic process attribution, local exports and unprivileged fallback", AdvancedDiagnosticTests.StorageAndAttribution),
     ("diagnostic independent NVML sensors, transient failures and recovery", AdvancedDiagnosticTests.SensorFailures),
     ("diagnostic comparisons, exposure, cautious wording and legacy reports", AdvancedDiagnosticTests.Comparisons),
-    ("live capture lifecycle and explicit-run cleanup", LiveCaptureTests.Run),
-    ("WARDOGS live resets, stale frames, gating, assists and failures", LiveWardogsSequenceTests.Run),
-    ("WARDOGS live baseline, refinement and cleanup", LiveWardogsTests.Run),
-    ("WARDOGS highlights group selected events and bound save deadlines", WardogsHighlightTests.Run),
     ("Steam WARDOGS timeline links, retained fragments, and verified export", SteamWardogsTests.Run),
-    ("WARDOGS verified exports and markers", WardogsExportTests.Run),
-    ("WARDOGS synthetic scanner, tracking, cancellation and intervals", WardogsTests.Run),
-    ("performance history versions, groups, compatibility and persistence", PerformanceHistoryTests.Run),
-    ("configuration snapshots and guarded single-file restore", ConfigSnapshotTests.Run),
     ("network diagnostics fake collectors, summaries, retention and validation", NetworkProbeTests.Run),
-    ("benchmark recipes, runner timing, persistence and comparability", BenchmarkTests.Run),
     ("media parsing, ranges, arguments and settings", MediaTests.Run),
-    ("rolling hardware diagnostic capture", RollingTests.Run),
-    ("recording bookmarks capture identity and persistence", BookmarkTests.Run),
     ("settings round trip and snapshot isolation", Tests.SettingsRoundTrip),
-    ("settings export/import preserves positions and apps", Tests.SettingsExportImport),
+    ("settings export/import preserves apps and overrides", Tests.SettingsExportImport),
     ("settings validation and duplicate paths", Tests.ValidateSettings),
-    ("deterministic recording health alerts and settings", RecordingHealthTests.Run),
     ("vibrance target settings round trip and validation", Tests.VibranceTargetSettings),
-    ("profile resolution precedence, legacy defaults and overlay presets", Tests.ProfileResolution),
-    ("profile reference validation and protected deletion", Tests.ProfileReferencesAndDeletion),
-    ("profile directory satisfies per-game recording validation", Tests.ProfileDirectoryValidation),
     ("capture modes map to OBS launch arguments", Tests.CaptureModeArguments),
-    ("WARDOGS highlight launch pins the detected client and replay length", Tests.WardogsHighlightLaunch),
     ("exact game matching and Steam path boundaries", Tests.MatchProcesses),
-    ("executable aliases, diagnostics, and path validation", Tests.ExecutableAliases),
     ("detects a selected portable OBS configuration", Tests.DetectPortableObs),
     ("OBS retarget preserves tracks and rolls back", Tests.ObsRetargetAndRollback),
     ("OBS replay profile changes preserve audio and roll back", Tests.ObsReplayConfiguration),
@@ -79,15 +61,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("per-game OBS opt-out stops owned capture and vetoes broad match fallback", Tests.GameRecordingOptOut),
     ("managed stop intents cover watching disabled", Tests.WatchingOffStopIntent),
     ("recording follows a second selected game", Tests.RecordingSwitchesGames),
-    ("alias recorder target keeps canonical game ownership", Tests.AliasRecordingTarget),
     ("automation does not own an existing OBS", Tests.ExistingObsIsNotStopped),
-    ("background OCR detects configured games without starting automation", Tests.BackgroundOcrGameDetection),
     ("automation stops retrying after OBS closes", Tests.ClosedObsDoesNotLoop),
     ("automation retries startup failures with a limit", Tests.StartFailureBackoff),
     ("manual changes are respected when disabling automation", Tests.ManualChangesAreRespected),
     ("match modes support name and folder rules", Tests.MatchModes),
     ("per-game vibrance and stop delay overrides apply", Tests.PerGameOverrides),
-    ("profile capture values, stop delay, vibrance and power reach automation", Tests.ProfileAutomationValues),
     ("HDR pauses vibrance when enabled", Tests.HdrPausesVibrance),
     ("selected vibrance changes only its display and restores ownership", Tests.SelectedVibranceTarget),
     ("focused vibrance restores on alt-tab while recording continues", Tests.FocusedVibrance),
@@ -98,9 +77,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("frame analysis aggregates intervals and tail percentiles", FrameAnalysisTests.Run),
     ("diagnostic timeline isolates streams and preserves missing values", DiagnosticReportTests.Run),
     ("saved report timeline parses markers and analyzes ranges", ReportTimelineTests.Run),
-    ("WARDOGS saved reviews, ownership, cancellation and recovery", WardogsReviewTests.Run),
     ("session library tracking, associations, persistence, and recovery", SessionTests.Run),
-    ("recording storage planning, capacity warnings, and cleanup suggestions", StorageTests.Run),
+    ("recording storage planning and capacity warnings", StorageTests.Run),
     ("live frame CSV handles quoted fields", Tests.LiveFrameCsv)
 };
 var failed = 0;
@@ -178,8 +156,6 @@ internal static class Tests
         settings.StutterMarkerHotkey = "Ctrl+Shift+F8";
         settings.Games.Add(new GameRule { Name = "Second", ExecutablePath = @"C:\Games\two.exe", VibrancePercent = 90, RecordingStopDelaySeconds = 20 });
         settings.Games[1].CaptureMode = CaptureMode.Both;
-        settings.Profiles.Add(new GameProfile { Name = "Recording", CaptureMode = CaptureMode.Both, ReplayBufferSeconds = 110, VibrancePercent = 65 });
-        settings.Games[1].ProfileId = settings.Profiles[0].Id;
         var copy = settings.Snapshot();
         settings.Games[0].Name = "Changed";
         Assert(copy.Games[0].Name == "Example", "snapshot shared a mutable game");
@@ -187,8 +163,6 @@ internal static class Tests
         Assert(copy.ObsWebSocketPort == 4456, "snapshot did not copy the OBS WebSocket port");
         Assert(copy.ReplayBufferSeconds == 95 && copy.SaveClipHotkey == "Ctrl+Shift+F9" && copy.StutterMarkerHotkey == "Ctrl+Shift+F8", "snapshot missed replay/hotkey settings");
         Assert(copy.Games[1].CaptureMode == CaptureMode.Both, "snapshot missed game capture mode");
-        settings.Profiles[0].Name = "Changed profile";
-        Assert(copy.Profiles[0].Name == "Recording" && copy.Games[1].ProfileId == copy.Profiles[0].Id, "snapshot shared profiles or lost profile assignment");
         store.Save(settings);
         settings.GameVibrance = 72;
         store.Save(settings);
@@ -200,7 +174,6 @@ internal static class Tests
         Assert(loaded.ObsWebSocketPort == 4456, "OBS WebSocket port was not saved");
         Assert(loaded.ReplayBufferSeconds == 95 && loaded.SaveClipHotkey == "Ctrl+Shift+F9" && loaded.StutterMarkerHotkey == "Ctrl+Shift+F8" && loaded.Games[1].CaptureMode == CaptureMode.Both,
             "replay settings did not round trip");
-        Assert(loaded.Profiles.Count == 1 && loaded.Games[1].ProfileId == loaded.Profiles[0].Id, "profiles did not round trip");
         var legacy = store.Deserialize("{\"SchemaVersion\":2,\"Games\":[{\"Name\":\"Old\",\"ExecutablePath\":\"C:\\\\Games\\\\old.exe\"}]}");
         Assert(legacy.Games[0].Record && legacy.Games[0].CaptureMode is null && EffectiveGameOptionsResolver.Resolve(legacy, legacy.Games[0]).CaptureMode == CaptureMode.Recording && legacy.ReplayBufferSeconds == 60 && legacy.SaveClipHotkey == "Ctrl+Alt+F10" && legacy.StutterMarkerHotkey == "Ctrl+Alt+F9",
             "legacy settings did not receive backward-compatible defaults");
@@ -218,28 +191,20 @@ internal static class Tests
         using var temp = new TempDirectory();
         var store = new SettingsStore(temp.Path);
         var settings = Settings();
-        settings.OverlayLeft = double.NaN;
-        settings.OverlayTop = double.NaN;
         settings.AppsToCloseOnGameLaunch = ["ChatGPT", "t3-code.exe"];
         settings.Games[0].VibrancePercent = 90;
         settings.Games[0].RecordingStopDelaySeconds = 15;
-        settings.Profiles.Add(new GameProfile { Name = "Quiet", RecordingDirectory = temp.Path, OverlayPreset = OverlayPreset.Minimal });
-        settings.Games[0].ProfileId = settings.Profiles[0].Id;
 
         var json = store.Serialize(settings.Snapshot());
         store.Save(settings);
         var fromDisk = store.Load()!;
-        Assert(double.IsNaN(fromDisk.OverlayLeft) && double.IsNaN(fromDisk.OverlayTop), "NaN overlay positions were not loaded");
         Assert(fromDisk.AppsToCloseOnGameLaunch.SequenceEqual(settings.AppsToCloseOnGameLaunch), "apps to close were not loaded");
 
         var imported = store.Deserialize(json);
         Assert(imported.SchemaVersion == SettingsStore.CurrentSchemaVersion, "exported settings were not upgraded");
-        Assert(double.IsNaN(imported.OverlayLeft) && double.IsNaN(imported.OverlayTop), "NaN overlay positions were not preserved by export/import");
         Assert(imported.AppsToCloseOnGameLaunch.SequenceEqual(settings.AppsToCloseOnGameLaunch), "apps to close were not preserved by export/import");
         Assert(imported.Games.Count == 1 && imported.Games[0].VibrancePercent == 90 && imported.Games[0].RecordingStopDelaySeconds == 15,
             "game overrides were not preserved by export/import");
-        Assert(imported.Profiles.Count == 1 && imported.Games[0].ProfileId == imported.Profiles[0].Id && imported.Profiles[0].OverlayPreset == OverlayPreset.Minimal,
-            "profiles were not preserved by export/import");
 
         var legacy = JsonNode.Parse(json)!;
         legacy["SchemaVersion"] = 1;
@@ -295,129 +260,10 @@ internal static class Tests
         return Task.CompletedTask;
     }
 
-    public static Task ProfileResolution()
-    {
-        var settings = Settings();
-        settings.RecordingDirectory = "global folder";
-        settings.ReplayBufferSeconds = 45;
-        settings.RecordingStopDelaySeconds = 7;
-        settings.GameVibrance = 55;
-        settings.GamingPowerPlan = GamingPlan;
-        settings.OverlayShowCpu = true;
-        settings.OverlayShowGpu = false;
-        settings.OverlayShowFps = false;
-        settings.OverlayShowLatency = true;
-        var profile = new GameProfile
-        {
-            Name = "Mixed", CaptureMode = CaptureMode.Replay, RecordingDirectory = "profile folder",
-            ReplayBufferSeconds = 100, RecordingStopDelaySeconds = 22, VibrancePercent = 67,
-            PowerPlanId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), OverlayPreset = OverlayPreset.Fps
-        };
-        settings.Profiles.Add(profile);
-        var game = settings.Games[0];
-        game.ProfileId = profile.Id;
-        var inherited = EffectiveGameOptionsResolver.Resolve(settings, game);
-        Assert(inherited.CaptureMode == CaptureMode.Replay && inherited.RecordingDirectory == "profile folder" && inherited.ReplayBufferSeconds == 100 && inherited.RecordingStopDelaySeconds == 22,
-            "capture, directory, replay or stop delay did not inherit profile values");
-        Assert(inherited.VibrancePercent == 67 && inherited.PowerPlanId == profile.PowerPlanId,
-            "vibrance or power did not inherit profile values");
-        game.PowerPlanId = Guid.Empty;
-        Assert(EffectiveGameOptionsResolver.Resolve(settings, game).PowerPlanId == settings.GamingPowerPlan,
-            "explicit global power fallback did not bypass the profile target");
-        game.PowerPlanId = null;
-        Assert(!inherited.OverlayShowCpu && !inherited.OverlayShowGpu && inherited.OverlayShowFps && inherited.OverlayShowLatency,
-            "FPS overlay preset did not resolve to FPS and frame delay");
-        profile.OverlayPreset = OverlayPreset.Minimal;
-        var minimal = EffectiveGameOptionsResolver.Resolve(settings, game);
-        Assert(!minimal.OverlayShowCpu && !minimal.OverlayShowGpu && minimal.OverlayShowFps && !minimal.OverlayShowLatency,
-            "Minimal overlay preset did not resolve to FPS only");
-        profile.OverlayPreset = OverlayPreset.Fps;
-        Assert(inherited.Record && inherited.UseVibrance, "profile resolution changed explicit game permissions");
-
-        game.CaptureMode = CaptureMode.Both;
-        game.RecordingDirectory = "game folder";
-        game.ReplayBufferSeconds = 180;
-        game.RecordingStopDelaySeconds = 4;
-        game.VibrancePercent = 91;
-        game.PowerPlanId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-        game.OverlayPreset = OverlayPreset.Full;
-        var overridden = EffectiveGameOptionsResolver.Resolve(settings, game);
-        Assert(overridden.CaptureMode == CaptureMode.Both && overridden.RecordingDirectory == "game folder" && overridden.ReplayBufferSeconds == 180 && overridden.RecordingStopDelaySeconds == 4,
-            "game capture values did not take precedence over profile values");
-        Assert(overridden.VibrancePercent == 91 && overridden.PowerPlanId == game.PowerPlanId && overridden.OverlayShowCpu && overridden.OverlayShowGpu && overridden.OverlayShowFps && overridden.OverlayShowLatency,
-            "game vibrance, power or overlay override did not take precedence");
-
-        game.CaptureMode = null; game.RecordingDirectory = null; game.ReplayBufferSeconds = null; game.RecordingStopDelaySeconds = null;
-        game.VibrancePercent = null; game.PowerPlanId = null; game.OverlayPreset = null;
-        profile.CaptureMode = null; profile.RecordingDirectory = null; profile.ReplayBufferSeconds = null;
-        profile.RecordingStopDelaySeconds = null; profile.VibrancePercent = null; profile.PowerPlanId = null; profile.OverlayPreset = null;
-        var global = EffectiveGameOptionsResolver.Resolve(settings, game);
-        Assert(global.CaptureMode == CaptureMode.Recording && global.RecordingDirectory == "global folder" && global.ReplayBufferSeconds == 45 && global.RecordingStopDelaySeconds == 7 && global.VibrancePercent == 55 && global.PowerPlanId == GamingPlan,
-            "unset profile values did not inherit global defaults");
-        Assert(global.OverlayShowCpu && !global.OverlayShowGpu && !global.OverlayShowFps && global.OverlayShowLatency,
-            "unset overlay preset did not inherit global visibility options");
-
-        var legacyStore = new SettingsStore(Path.GetTempPath());
-        var legacy = legacyStore.Deserialize("{\"SchemaVersion\":2,\"Games\":[{\"Name\":\"Old\",\"ExecutablePath\":\"C:\\\\Games\\\\old.exe\",\"CaptureMode\":1}]}");
-        Assert(EffectiveGameOptionsResolver.Resolve(legacy, legacy.Games[0]).CaptureMode == CaptureMode.Replay,
-            "legacy numeric capture mode was not retained as an explicit value");
-        var absent = legacyStore.Deserialize("{\"SchemaVersion\":2,\"Games\":[{\"Name\":\"Old\",\"ExecutablePath\":\"C:\\\\Games\\\\old.exe\"}]}");
-        Assert(EffectiveGameOptionsResolver.Resolve(absent, absent.Games[0]).CaptureMode == CaptureMode.Recording,
-            "legacy missing capture mode did not resolve to recording");
-        return Task.CompletedTask;
-    }
-
-    public static Task ProfileReferencesAndDeletion()
-    {
-        var settings = Settings();
-        var profile = new GameProfile { Name = "Assigned" };
-        settings.Profiles.Add(profile);
-        settings.Games[0].ProfileId = profile.Id;
-        Assert(!GameProfileOperations.TryRemove(settings.Profiles, settings.Games, profile.Id, out var message) && message.Contains("Example"),
-            "assigned profile deletion was not refused with the game named");
-        settings.Profiles.Add(new GameProfile { Id = profile.Id, Name = "Assigned" });
-        settings.Profiles.Add(new GameProfile { Id = Guid.Empty, Name = " " });
-        settings.Games[0].ProfileId = Guid.NewGuid();
-        var errors = SettingsValidation.Validate(settings);
-        Assert(errors.Any(error => error.Contains("profile ID is duplicated", StringComparison.OrdinalIgnoreCase)) &&
-               errors.Any(error => error.Contains("profile ID is empty", StringComparison.OrdinalIgnoreCase)) &&
-               errors.Any(error => error.Contains("profile name", StringComparison.OrdinalIgnoreCase)) &&
-               errors.Any(error => error.Contains("selected profile is missing", StringComparison.OrdinalIgnoreCase)),
-            "invalid profile IDs, names or imported references were not actionable");
-        settings.Profiles.RemoveAt(2);
-        settings.Profiles.RemoveAt(1);
-        settings.Games[0].ProfileId = null;
-        Assert(GameProfileOperations.TryRemove(settings.Profiles, settings.Games, profile.Id, out _), "unassigned profile could not be deleted");
-        return Task.CompletedTask;
-    }
-
-    public static Task ProfileDirectoryValidation()
-    {
-        using var temp = new TempDirectory();
-        var config = System.IO.Path.Combine(temp.Path, "obs-config");
-        Directory.CreateDirectory(config);
-        var executable = System.IO.Path.Combine(temp.Path, "obs.exe");
-        File.WriteAllText(executable, "");
-        var settings = Settings();
-        settings.RecordingEnabled = true;
-        settings.ObsExecutablePath = executable;
-        settings.ObsConfigRoot = config;
-        settings.RecordingDirectory = "";
-        settings.Profiles.Add(new GameProfile { Name = "Per-game folder", RecordingDirectory = temp.Path });
-        settings.Games[0].ProfileId = settings.Profiles[0].Id;
-        Assert(SettingsValidation.Validate(settings).Count == 0,
-            "valid profile folder did not satisfy the selected game's output-folder requirement");
-        settings.Profiles[0].RecordingDirectory = System.IO.Path.Combine(temp.Path, "missing");
-        Assert(SettingsValidation.Validate(settings).Any(error => error.Contains("recording folder", StringComparison.OrdinalIgnoreCase)),
-            "missing effective recording folder was not reported");
-        return Task.CompletedTask;
-    }
-
     public static Task CaptureModeArguments()
     {
         Assert(ObsRecorder.BuildCaptureArguments(CaptureMode.Recording).SequenceEqual(["--startrecording"]), "recording launch arguments incorrect");
         Assert(ObsRecorder.BuildCaptureArguments(CaptureMode.Replay).SequenceEqual(["--startreplaybuffer"]), "replay launch arguments incorrect");
-        Assert(ObsRecorder.BuildCaptureArguments(CaptureMode.WardogsHighlights).SequenceEqual(["--startreplaybuffer"]), "highlights must start only the replay buffer");
         Assert(ObsRecorder.BuildCaptureArguments(CaptureMode.Both).SequenceEqual(["--startrecording", "--startreplaybuffer"]), "both launch arguments incorrect");
         return Task.CompletedTask;
     }
@@ -635,28 +481,6 @@ internal static class Tests
         Assert(recorder.Stops == 0, "existing OBS was stopped");
     }
 
-    public static async Task BackgroundOcrGameDetection()
-    {
-        using var temp = new TempDirectory();
-        var settings = Settings();
-        settings.AutomationEnabled = false;
-        settings.BackgroundWardogsOcr = true;
-        var platform = new FakePlatform();
-        var recorder = new FakeRecorder();
-        await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => DateTime.UtcNow);
-        AutomationStatus? status = null;
-        automation.StatusChanged += observation => status = observation;
-        await automation.TickForTestsAsync();
-        Assert(status?.BackgroundOcrGameDetected == false, "idle detection did not report an idle computer");
-        platform.Processes = [new RunningProcess(10, "game.exe", GamePath)];
-        await automation.TickForTestsAsync();
-        Assert(status?.BackgroundOcrGameDetected == true && recorder.Starts == 0, "game detection needs to pause OCR without starting OBS");
-        settings.BackgroundWardogsOcr = false;
-        automation.UpdateSettings(settings);
-        await automation.TickForTestsAsync();
-        Assert(status is { BackgroundOcrGameDetected: null }, "background detection did not turn off");
-    }
-
     public static async Task RecordingSwitchesGames()
     {
         using var temp = new TempDirectory();
@@ -675,33 +499,6 @@ internal static class Tests
         await automation.TickForTestsAsync();
         await automation.TickForTestsAsync();
         Assert(recorder.Stops == 1 && recorder.Starts == 2 && recorder.LastPid == 20, "recording did not move to the second game");
-    }
-
-    public static async Task AliasRecordingTarget()
-    {
-        using var temp = new TempDirectory();
-        var settings = Settings();
-        const string alias = @"C:\AltInstall\game.exe";
-        settings.Games[0].ExecutableAliases.Add(alias);
-        var platform = new FakePlatform { Processes = [new RunningProcess(99, "game.exe", alias)] };
-        var recorder = new FakeRecorder();
-        await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => DateTime.UtcNow);
-        await automation.TickForTestsAsync();
-        Assert(recorder.LastPath == alias && recorder.LastPid == 99, "recorder did not receive the observed alias executable with its PID");
-        Assert(automation.RecordingGamePath == GamePath, "recording owner identity changed from the canonical rule path");
-        platform.Processes = [new RunningProcess(5, "game.exe", GamePath), new RunningProcess(99, "game.exe", alias)];
-        await automation.TickForTestsAsync();
-        Assert(recorder.Starts == 1 && recorder.Stops == 0 && automation.RecordingGamePath == GamePath,
-            "snapshot reordering or a likely name candidate made the owned recording leave its matching PID");
-
-        var inaccessibleSettings = Settings();
-        inaccessibleSettings.Games[0].MatchMode = "name";
-        var inaccessiblePlatform = new FakePlatform { Processes = [new RunningProcess(77, "game.exe", null)] };
-        var inaccessibleRecorder = new FakeRecorder();
-        await using var inaccessibleAutomation = new AutomationService(inaccessibleSettings, temp.Path, inaccessiblePlatform, inaccessibleRecorder, () => DateTime.UtcNow);
-        await inaccessibleAutomation.TickForTestsAsync();
-        Assert(inaccessibleRecorder.Starts == 0 && inaccessibleAutomation.RecordingGamePath is null,
-            "an inaccessible process path was paired with the canonical path for recording");
     }
 
     public static async Task ClosedObsDoesNotLoop()
@@ -771,93 +568,6 @@ internal static class Tests
         return Task.CompletedTask;
     }
 
-    public static Task ExecutableAliases()
-    {
-        var settings = Settings();
-        var game = settings.Games[0];
-        const string alias = @"C:\AltInstall\game.exe";
-        game.ExecutableAliases.Add(alias);
-        var snapshot = settings.Snapshot();
-        game.ExecutableAliases[0] = @"C:\Changed\other.exe";
-        Assert(snapshot.Games[0].ExecutableAliases[0] == alias, "settings snapshot shared mutable aliases");
-        game.ExecutableAliases[0] = alias;
-
-        var processes = new[]
-        {
-            new RunningProcess(40, "game.exe", alias.ToUpperInvariant()),
-            new RunningProcess(41, "game.exe", @"C:\AltInstallElse\game.exe"),
-            new RunningProcess(42, "game.exe", null),
-            new RunningProcess(43, "game.exe", @"C:\Games\Example\game.exe")
-        };
-        var match = AutomationPolicy.MatchGames([game], processes);
-        var allMatches = AutomationPolicy.MatchAllGames([game], processes);
-        Assert(match.Count == 1 && match[0].Process.Id == 43 && allMatches.Count == 2 && allMatches[1].Process.Id == 40,
-            "primary and case-insensitive exact alias paths did not match predictably");
-        var evaluation = AutomationPolicy.EvaluateRule(game, processes, [game]);
-        Assert(evaluation.Match?.Process.Id == match[0].Process.Id && evaluation.Match?.MatchKind == GameProcessMatchKind.PrimaryPath,
-            "diagnostics disagree with the runtime match policy");
-        Assert(evaluation.Processes.Any(item => item.Process.Id == 41 && item.MatchKind is null && item.Reason.Contains("does not equal", StringComparison.OrdinalIgnoreCase)),
-            "adjacent directory path was not explained as a mismatch");
-        Assert(evaluation.Processes.Any(item => item.Process.Id == 42 && item.MatchKind is null && item.Reason.Contains("inaccessible", StringComparison.OrdinalIgnoreCase)),
-            "inaccessible process path was not explained");
-        var competing = new GameRule { Name = "Competing", ExecutablePath = @"C:\Else\other.exe", ExecutableAliases = [GamePath] };
-        var competingEvaluation = AutomationPolicy.EvaluateRule(game, processes, [game, competing]);
-        Assert(competingEvaluation.CompetingGames.Contains("Competing"), "a competing rule matching the selected PID was not diagnosed");
-        Assert(AutomationPolicy.ResolveObservedTarget(game, [processes[0]], out _)?.EndsWith(@"AltInstall\game.exe", StringComparison.OrdinalIgnoreCase) == true,
-            "performance target did not resolve an alias to the observed executable");
-        var ambiguousTarget = AutomationPolicy.ResolveObservedTarget(game, [processes[0], processes[3]], out var ambiguity);
-        Assert(ambiguousTarget is null && ambiguity.Contains("different executable paths", StringComparison.OrdinalIgnoreCase),
-            "multiple actual executable targets were not marked ambiguous");
-        var nameRule = game.Copy();
-        nameRule.MatchMode = "name";
-        Assert(AutomationPolicy.ResolveObservedTarget(nameRule, [processes[0], processes[2]], out _) is null,
-            "a readable target masked another matching process with an inaccessible path");
-        Assert(!ExecutablePathRules.IsValidAbsoluteExecutable("C:\\Games\\bad\0.exe") &&
-               !ExecutablePathRules.IsValidAbsoluteExecutable(@"C:\Games\*.exe"),
-            "malformed executable paths passed validation");
-
-        var store = new SettingsStore(Path.GetTempPath());
-        var imported = store.Deserialize(store.Serialize(snapshot));
-        Assert(imported.Games[0].ExecutablePath == GamePath && imported.Games[0].ExecutableAliases.SequenceEqual(snapshot.Games[0].ExecutableAliases),
-            "canonical game identity or aliases did not round trip");
-        imported.Games[0].ExecutableAliases.Add("not-an-absolute-path.exe");
-        imported.Games[0].ExecutableAliases.Add(GamePath.ToUpperInvariant());
-        imported.Games[0].ExecutableAliases.Add(@"C:\AltInstall\.\game.exe");
-        var issues = SettingsValidation.Validate(imported);
-        Assert(issues.Any(issue => issue.Contains("full .exe path", StringComparison.OrdinalIgnoreCase)) &&
-               issues.Any(issue => issue.Contains("duplicates the primary", StringComparison.OrdinalIgnoreCase)) &&
-               issues.Any(issue => issue.Contains("duplicates another", StringComparison.OrdinalIgnoreCase)),
-            "invalid, canonical duplicate, or normalized duplicate aliases were not surfaced");
-        return Task.CompletedTask;
-    }
-
-    public static async Task WardogsHighlightLaunch()
-    {
-        using var temp = new TempDirectory();
-        var settings = Settings();
-        settings.Games[0].CaptureMode = CaptureMode.WardogsHighlights;
-        settings.Games[0].ReplayBufferSeconds = 25;
-        var platform = new FakePlatform { Processes = [new RunningProcess(10, "game.exe", GamePath)] };
-        var recorder = new FakeRecorder();
-        var clock = new FakeClock();
-        await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => clock.Now);
-        var launches = new List<AutomationRecordingLifecycle>();
-        automation.RecordingLifecycleChanged += launches.Add;
-        await automation.TickForTestsAsync();
-        Assert(!recorder.Owned && launches.Count == 0, "a non-WARDOGS game armed highlights");
-
-        const string client = @"C:\Games\WardogsClient-Win64-Shipping.exe";
-        settings.Games[0].ExecutableAliases.Add(client);
-        platform.Processes = [new RunningProcess(11, "WardogsClient-Win64-Shipping.exe", client)];
-        automation.UpdateSettings(settings);
-        await automation.TickForTestsAsync();
-        Assert(recorder.Owned && recorder.LastSettings?.CaptureMode == CaptureMode.WardogsHighlights,
-            "WARDOGS option did not reach the recorder");
-        var launch = launches.Single();
-        Assert(launch is { IsOwned: true, GamePid: 11, GameExecutable: client, GameRulePath: GamePath, ReplaySeconds: 25 },
-            "highlight launch did not preserve the game process, canonical game path, and replay length");
-    }
-
     public static async Task PerGameOverrides()
     {
         using var temp = new TempDirectory();
@@ -886,39 +596,6 @@ internal static class Tests
         platform.Processes = [];
         await automation.TickForTestsAsync();
         Assert(!recorder.Owned, "per-game stop delay override did not apply");
-    }
-
-    public static async Task ProfileAutomationValues()
-    {
-        using var temp = new TempDirectory();
-        var settings = Settings();
-        settings.RecordingDirectory = "global-folder";
-        var targetPower = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
-        var profile = new GameProfile
-        {
-            Name = "Capture profile", CaptureMode = CaptureMode.Both, RecordingDirectory = temp.Path,
-            ReplayBufferSeconds = 125, RecordingStopDelaySeconds = 20, VibrancePercent = 73, PowerPlanId = targetPower
-        };
-        settings.Profiles.Add(profile);
-        settings.Games[0].ProfileId = profile.Id;
-        settings.Games[0].UseVibrance = true;
-        var platform = new FakePlatform { Processes = [new RunningProcess(10, "game.exe", GamePath)] };
-        var recorder = new FakeRecorder();
-        var clock = new FakeClock();
-        await using var automation = new AutomationService(settings, temp.Path, platform, recorder, () => clock.Now);
-        await automation.TickForTestsAsync();
-        Assert(recorder.LastSettings?.CaptureMode == CaptureMode.Both && recorder.LastSettings.RecordingDirectory == temp.Path && recorder.LastSettings.ReplayBufferSeconds == 125,
-            "profile mode, folder or replay length did not reach the recorder");
-        Assert(platform.Vibrance == 73 && platform.Power == targetPower, "profile vibrance or power target did not reach automation");
-        Assert(automation.RecordingGamePath == GamePath, "automation changed the configured game identity");
-        platform.Processes = [];
-        await automation.TickForTestsAsync();
-        clock.Now = clock.Now.AddSeconds(19);
-        await automation.TickForTestsAsync();
-        Assert(recorder.Owned, "profile stop delay was ignored before its deadline");
-        clock.Now = clock.Now.AddSeconds(1);
-        await automation.TickForTestsAsync();
-        Assert(!recorder.Owned && recorder.Stops == 1, "profile stop delay was not applied");
     }
 
     public static async Task HdrPausesVibrance()

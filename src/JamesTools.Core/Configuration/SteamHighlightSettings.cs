@@ -1,6 +1,5 @@
 using System.Text.Json.Serialization;
 using JamesTools.Core.Recording;
-using JamesTools.Core.Scanning;
 
 namespace JamesTools.Core.Configuration;
 
@@ -28,7 +27,7 @@ public sealed class SteamHighlightSettings
 
     public SteamHighlightSettings Copy() => (SteamHighlightSettings)MemberwiseClone();
 
-    public static bool SupportsGame(GameRule game) => WardogsRecordingLinks.IsWardogs(game.Name, game.ExecutablePath);
+    public static bool SupportsGame(GameRule game) => SteamWardogsLibrary.IsWardogs(game.Name, game.ExecutablePath);
 
     public bool AutoExportFor(GameRule game) => SupportsGame(game) && (game.SteamAutoHighlights ?? AutoExport);
 

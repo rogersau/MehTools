@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using JamesTools.Core.Scanning;
 using JamesTools.Core.Sessions;
 
 namespace JamesTools.Core.Recording;
@@ -56,12 +55,18 @@ public static class SteamWardogsLibrary
     private static readonly Regex TimelineId = new(@"\Atimeline_1867240[0-9]{8}_[0-9]{6}\z", RegexOptions.CultureInvariant);
     private static readonly Regex RecordingId = new(@"\Abg_1867240_[0-9]{8}_[0-9]{6}\z", RegexOptions.CultureInvariant);
 
+    public static bool IsWardogs(GameSession session) => IsWardogs(session.GameName, session.ExecutableKey);
+
+    public static bool IsWardogs(string? name, string? path)
+        => (!string.IsNullOrWhiteSpace(name) && name.Contains("wardogs", StringComparison.OrdinalIgnoreCase)) ||
+           (!string.IsNullOrWhiteSpace(path) && Path.GetFileNameWithoutExtension(path).Contains("wardogs", StringComparison.OrdinalIgnoreCase));
+
     public static bool IsCompletedWardogsSession(GameSession session)
         => session.Status == SessionStatus.Completed && IsHistoricalWardogsSession(session);
 
     public static bool IsHistoricalWardogsSession(GameSession session)
         => session.Status is SessionStatus.Completed or SessionStatus.Interrupted or SessionStatus.WatchingStopped &&
-            session.EndedUtc > session.StartedUtc && WardogsRecordingLinks.IsWardogs(session);
+            session.EndedUtc > session.StartedUtc && IsWardogs(session);
 
     public static SteamWardogsTimeline? MatchCompletedSession(GameSession session, SteamWardogsCatalog catalog)
         => IsCompletedWardogsSession(session) ? MatchHistoricalSession(session, catalog) : null;
